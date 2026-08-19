@@ -465,6 +465,9 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
   const LEGACY_USERS = 'vitalFechamentoUsuariosProvisorios';
   const LEGACY_SESSION = 'vitalFechamentoSessao';
   const BOOT_KEY = 'vfCloudBootstrapped';
+  const LOGIN_EMAILS = Object.freeze({
+    alexandre: 'escritoriovital.alexandre@gmail.com'
+  });
   const revisions = new Map();
   const snapshots = new Map();
   let client;
@@ -477,7 +480,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     const style = document.createElement('style');
     style.textContent = `
       #vfCloudStatus{position:fixed;right:18px;bottom:18px;z-index:12000;min-width:270px;padding:11px 14px;border-radius:11px;background:#fff;border:1px solid #cfdde4;box-shadow:0 10px 30px #0624432b;font:12px Arial;color:#173247}
-      #vfCloudStatus strong{display:block;margin-bottom:3px}#vfCloudStatus small{color:#63758a}
+      #vfCloudStatus strong{display:block;margin-bottom:3px}#vfCloudStatus small{color:#63758a}#vfCloudStatus button{float:right;margin:-25px 0 0 10px;border:1px solid #c7d5dd;border-radius:6px;background:#fff;color:#173247;padding:5px 9px;font:700 11px Arial;cursor:pointer}
       #vfCloudStatus .lamp{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:8px;background:#d64035;box-shadow:0 0 0 4px #d6403518}
       #vfCloudStatus.online .lamp{background:#16a45b;box-shadow:0 0 0 4px #16a45b18}#vfCloudStatus.saving .lamp{background:#e49a11;box-shadow:0 0 0 4px #e49a1118}
       #vfCloudToast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);z-index:13000;padding:12px 18px;border-radius:9px;background:#087647;color:#fff;font:700 13px Arial;opacity:0;pointer-events:none;transition:.2s}
@@ -492,9 +495,9 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     document.head.appendChild(style);
 
     document.body.insertAdjacentHTML('beforeend', `
-      <div id="vfCloudStatus"><strong><span class="lamp"></span><span data-title>Conectando ao Supabase...</span></strong><small data-detail>Aguarde a confirmação do servidor.</small></div>
+      <div id="vfCloudStatus"><strong><span class="lamp"></span><span data-title>Conectando ao Supabase...</span></strong><small data-detail>Aguarde a confirmação do servidor.</small><button id="vfCloudLogout" type="button">Sair</button></div>
       <div id="vfCloudToast"></div>
-      <div id="vfCloudGate"><div class="vfCloudCard"><h1>Plataforma Fiscal Vital</h1><p>Entre para acessar os dados protegidos no Supabase.</p><label>E-mail<input id="vfCloudEmail" type="email" autocomplete="username"></label><label>Senha<input id="vfCloudPassword" type="password" autocomplete="current-password"></label><div id="vfCloudError" class="error"></div><button id="vfCloudLogin">Entrar</button></div></div>
+      <div id="vfCloudGate"><div class="vfCloudCard"><h1>Plataforma Fiscal Vital</h1><p>Entre para acessar os dados protegidos no Supabase.</p><label>Nome de usuário<input id="vfCloudLoginId" type="text" autocomplete="username" placeholder="Ex.: alexandre"></label><label>Senha<input id="vfCloudPassword" type="password" autocomplete="current-password"></label><div id="vfCloudError" class="error"></div><button id="vfCloudLogin">Entrar</button></div></div>
     `);
   }
 
@@ -504,6 +507,14 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     box.className = kind || '';
     box.querySelector('[data-title]').textContent = title;
     box.querySelector('[data-detail]').textContent = detail || '';
+    syncSidebarStatus(kind, title, detail);
+  }
+
+  function syncSidebarStatus(kind, title, detail) {
+    const sidebar = document.querySelector('.saveStatus');
+    if (!sidebar) return;
+    const color = kind === 'online' ? '#16df8d' : kind === 'saving' ? '#f3b928' : '#ef6b61';
+    sidebar.innerHTML = `<strong><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:7px"></span>${title}</strong><small>${detail || 'Status do servidor'}</small>`;
   }
 
   function toast(message, error = false) {
@@ -656,11 +667,16 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
   }
 
   async function login() {
-    const email = document.getElementById('vfCloudEmail').value.trim();
+    const loginId = document.getElementById('vfCloudLoginId').value.trim().toLowerCase();
+    const email = loginId.includes('@') ? loginId : LOGIN_EMAILS[loginId];
     const password = document.getElementById('vfCloudPassword').value;
     const errorBox = document.getElementById('vfCloudError');
     const button = document.getElementById('vfCloudLogin');
     errorBox.textContent = '';
+    if (!email) {
+      errorBox.textContent = 'Nome de usuário não cadastrado.';
+      return;
+    }
     button.disabled = true;
     button.textContent = 'Entrando...';
     const {data, error} = await client.auth.signInWithPassword({email, password});
@@ -676,6 +692,14 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     catch (e) { errorBox.textContent = e.message || 'Não foi possível acessar o perfil.'; }
   }
 
+  async function logout() {
+    setStatus('saving', 'Encerrando acesso...', 'Aguarde.');
+    try { await client.auth.signOut(); } catch (error) { console.error(error); }
+    sessionStorage.removeItem(BOOT_KEY);
+    sessionStorage.removeItem(LEGACY_SESSION);
+    location.reload();
+  }
+
   async function start() {
     injectUi();
     if (!window.supabase?.createClient) {
@@ -683,8 +707,17 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
       document.getElementById('vfCloudError').textContent = 'Não foi possível conectar ao servidor.';
       return;
     }
-    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storage: window.sessionStorage,
+        storageKey: 'vf-supabase-auth'
+      }
+    });
     document.getElementById('vfCloudLogin').onclick = login;
+    document.getElementById('vfCloudLogout').onclick = logout;
     document.getElementById('vfCloudPassword').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
     const {data: {session}} = await client.auth.getSession();
     if (session) {

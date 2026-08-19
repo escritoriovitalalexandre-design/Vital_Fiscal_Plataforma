@@ -468,6 +468,8 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
   const LOGIN_EMAILS = Object.freeze({
     alexandre: 'escritoriovital.alexandre@gmail.com'
   });
+  const ADMIN_FUNCTION_URL = `${SUPABASE_URL}/functions/v1/admin-users`;
+  const RECOVERY_WHATSAPP = '5519997167800';
   const revisions = new Map();
   const snapshots = new Map();
   let client;
@@ -480,7 +482,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     const style = document.createElement('style');
     style.textContent = `
       #vfCloudStatus{position:fixed;right:18px;bottom:18px;z-index:12000;min-width:270px;padding:11px 14px;border-radius:11px;background:#fff;border:1px solid #cfdde4;box-shadow:0 10px 30px #0624432b;font:12px Arial;color:#173247}
-      #vfCloudStatus strong{display:block;margin-bottom:3px}#vfCloudStatus small{color:#63758a}#vfCloudStatus button{float:right;margin:-25px 0 0 10px;border:1px solid #c7d5dd;border-radius:6px;background:#fff;color:#173247;padding:5px 9px;font:700 11px Arial;cursor:pointer}
+      #vfCloudStatus strong{display:block;margin-bottom:3px}#vfCloudStatus small{color:#63758a}#vfCloudStatus .cloudActions{display:flex;justify-content:flex-end;gap:6px;margin-top:8px}#vfCloudStatus button{border:1px solid #c7d5dd;border-radius:6px;background:#fff;color:#173247;padding:5px 9px;font:700 11px Arial;cursor:pointer}#vfCloudStatus button.hidden{display:none}
       #vfCloudStatus .lamp{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:8px;background:#d64035;box-shadow:0 0 0 4px #d6403518}
       #vfCloudStatus.online .lamp{background:#16a45b;box-shadow:0 0 0 4px #16a45b18}#vfCloudStatus.saving .lamp{background:#e49a11;box-shadow:0 0 0 4px #e49a1118}
       #vfCloudToast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);z-index:13000;padding:12px 18px;border-radius:9px;background:#087647;color:#fff;font:700 13px Arial;opacity:0;pointer-events:none;transition:.2s}
@@ -490,14 +492,18 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
       .vfCloudCard h1{margin:0;color:#082f50;font:800 25px Arial}.vfCloudCard p{color:#63758a;font:14px Arial;line-height:1.5}.vfCloudCard label{display:block;margin-top:14px;color:#304a60;font:700 12px Arial}
       .vfCloudCard input{width:100%;margin-top:6px;padding:12px;border:1px solid #c9d7df;border-radius:8px;font:14px Arial}.vfCloudCard button{width:100%;margin-top:18px;padding:12px;border:0;border-radius:8px;background:#079bb4;color:#fff;font:700 14px Arial;cursor:pointer}
       .vfCloudCard .error{min-height:18px;margin-top:10px;color:#b43d34;font:700 12px Arial}.vfCloudCard .loading{color:#087647}
+      .vfRecovery{display:block!important;margin:13px auto 0!important;padding:0!important;border:0!important;background:transparent!important;color:#087e98!important;text-decoration:underline;font:700 12px Arial!important;cursor:pointer}
+      #vfUserAdmin{position:fixed;inset:0;z-index:16000;display:grid;place-items:center;padding:20px;background:#09223c99}#vfUserAdmin.hidden{display:none}.vfAdminBox{width:min(980px,97vw);max-height:92vh;overflow:auto;background:#fff;border-radius:15px;padding:24px;box-shadow:0 35px 90px #001a;font:13px Arial;color:#173247}.vfAdminHead{display:flex;justify-content:space-between;gap:15px}.vfAdminHead h2{margin:0}.vfAdminHead button,.vfAdminBox button{border:1px solid #c7d5dd;border-radius:7px;background:#fff;padding:8px 11px;font-weight:700;cursor:pointer}.vfUserForm{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:9px;align-items:end;margin:20px 0;padding:15px;border:1px solid #d8e2e7;border-radius:10px;background:#f8fbfc}.vfUserForm label{font-size:11px}.vfUserForm input,.vfUserForm select{width:100%;margin-top:5px;padding:9px;border:1px solid #c9d7df;border-radius:7px}.vfUserForm button{background:#079bb4;color:#fff;border:0;padding:10px 13px}.vfUsersTable{width:100%;border-collapse:collapse}.vfUsersTable th{background:#174866;color:#fff}.vfUsersTable th,.vfUsersTable td{padding:9px;border-bottom:1px solid #dce5ea;text-align:left}.vfUsersTable .off{color:#b43d34}.vfUsersTable .on{color:#087647}.vfUsersTable button{margin:2px}.vfAdminMessage{min-height:18px;margin:7px 0;font-weight:700}.vfAdminMessage.error{color:#b43d34}.vfAdminMessage.ok{color:#087647}
       @media(max-width:680px){#vfCloudStatus{right:8px;bottom:74px;min-width:220px}}
+      @media(max-width:850px){.vfUserForm{grid-template-columns:1fr 1fr}.vfUserForm label:first-child{grid-column:1/-1}.vfUsersTable{min-width:760px}}
     `;
     document.head.appendChild(style);
 
     document.body.insertAdjacentHTML('beforeend', `
-      <div id="vfCloudStatus"><strong><span class="lamp"></span><span data-title>Conectando ao Supabase...</span></strong><small data-detail>Aguarde a confirmação do servidor.</small><button id="vfCloudLogout" type="button">Sair</button></div>
+      <div id="vfCloudStatus"><strong><span class="lamp"></span><span data-title>Conectando ao Supabase...</span></strong><small data-detail>Aguarde a confirmação do servidor.</small><div class="cloudActions"><button id="vfCloudUsers" class="hidden" type="button">Usuários</button><button id="vfCloudLogout" type="button">Sair</button></div></div>
       <div id="vfCloudToast"></div>
-      <div id="vfCloudGate"><div class="vfCloudCard"><h1>Plataforma Fiscal Vital</h1><p>Entre para acessar os dados protegidos no Supabase.</p><label>Nome de usuário<input id="vfCloudLoginId" type="text" autocomplete="username" placeholder="Ex.: alexandre"></label><label>Senha<input id="vfCloudPassword" type="password" autocomplete="current-password"></label><div id="vfCloudError" class="error"></div><button id="vfCloudLogin">Entrar</button></div></div>
+      <div id="vfCloudGate"><div class="vfCloudCard"><h1>Plataforma Fiscal Vital</h1><p>Entre para acessar os dados protegidos no Supabase.</p><label>Nome de usuário<input id="vfCloudLoginId" type="text" autocomplete="username" placeholder="Ex.: alexandre"></label><label>Senha<input id="vfCloudPassword" type="password" autocomplete="current-password"></label><div id="vfCloudError" class="error"></div><button id="vfCloudLogin">Entrar</button><button id="vfCloudRecovery" class="vfRecovery" type="button">Esqueci meu usuário ou senha</button></div></div>
+      <div id="vfUserAdmin" class="hidden"><div class="vfAdminBox"><div class="vfAdminHead"><div><h2>Administração de usuários</h2><p>Cadastros protegidos pelo Supabase.</p></div><button id="vfUserAdminClose" type="button">Fechar</button></div><div class="vfUserForm"><label>Nome completo<input id="vfNewFullName"></label><label>CPF<input id="vfNewCpf" placeholder="000.000.000-00"></label><label>Usuário<input id="vfNewUsername"></label><label>Senha<input id="vfNewPassword" type="password"></label><label>Perfil<select id="vfNewRole"><option value="user">Usuário</option><option value="admin">Administrador</option></select></label><button id="vfCreateUser" type="button">Cadastrar</button></div><div id="vfAdminMessage" class="vfAdminMessage"></div><div style="overflow:auto"><table class="vfUsersTable"><thead><tr><th>Nome</th><th>CPF</th><th>Usuário</th><th>Perfil</th><th>Situação</th><th>Ações</th></tr></thead><tbody id="vfUsersBody"></tbody></table></div></div></div>
     `);
   }
 
@@ -655,6 +661,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     seedLegacySession();
     await migrateLocalStateIfNeeded();
     document.getElementById('vfCloudGate').classList.add('hidden');
+    document.getElementById('vfCloudUsers').classList.toggle('hidden', profile.role !== 'admin');
     setStatus('online', 'Conectado ao Supabase', `Usuário: ${profile.full_name}.`);
     subscribeRealtime();
     watchLocalChanges();
@@ -668,7 +675,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
 
   async function login() {
     const loginId = document.getElementById('vfCloudLoginId').value.trim().toLowerCase();
-    const email = loginId.includes('@') ? loginId : LOGIN_EMAILS[loginId];
+    const email = loginId.includes('@') ? loginId : (LOGIN_EMAILS[loginId] || (/^[a-z0-9._-]{3,30}$/.test(loginId) ? `${loginId}@login.vital-fiscal.local` : ''));
     const password = document.getElementById('vfCloudPassword').value;
     const errorBox = document.getElementById('vfCloudError');
     const button = document.getElementById('vfCloudLogin');
@@ -690,6 +697,80 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     }
     try { await enterCloud(data.session); }
     catch (e) { errorBox.textContent = e.message || 'Não foi possível acessar o perfil.'; }
+  }
+
+  async function adminRequest(payload) {
+    const {data: {session}} = await client.auth.getSession();
+    if (!session) throw new Error('Sessão encerrada. Entre novamente.');
+    const response = await fetch(ADMIN_FUNCTION_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', 'Authorization':`Bearer ${session.access_token}`, 'apikey':SUPABASE_ANON_KEY},
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Não foi possível concluir a operação.');
+    return result;
+  }
+
+  function maskCpf(value) {
+    const digits = String(value || '').replace(/\D/g, '').slice(0, 11);
+    return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  }
+
+  function adminMessage(text, error = false) {
+    const box = document.getElementById('vfAdminMessage');
+    box.textContent = text;
+    box.className = `vfAdminMessage ${error ? 'error' : 'ok'}`;
+  }
+
+  async function loadUsers() {
+    const {data, error} = await client.from('profiles').select('id,username,full_name,cpf,role,active,created_at').order('full_name');
+    if (error) throw error;
+    const body = document.getElementById('vfUsersBody');
+    body.innerHTML = (data || []).map(user => `<tr><td>${escapeHtml(user.full_name)}</td><td>${escapeHtml(maskCpf(user.cpf))}</td><td>${escapeHtml(user.username)}</td><td>${user.role === 'admin' ? 'Administrador' : 'Usuário'}</td><td class="${user.active ? 'on' : 'off'}">${user.active ? 'Ativo' : 'Desativado'}</td><td><button data-reset="${user.id}">Nova senha</button>${user.id === profile.id ? '' : `<button data-active="${user.id}" data-value="${!user.active}">${user.active ? 'Desativar' : 'Ativar'}</button>`}</td></tr>`).join('');
+    body.querySelectorAll('[data-reset]').forEach(button => button.onclick = async () => {
+      const password = prompt('Digite a nova senha (mínimo de 8 caracteres):');
+      if (!password) return;
+      try { await adminRequest({action:'reset_password', id:button.dataset.reset, password}); adminMessage('Senha redefinida com sucesso.'); }
+      catch (e) { adminMessage(e.message, true); }
+    });
+    body.querySelectorAll('[data-active]').forEach(button => button.onclick = async () => {
+      try { await adminRequest({action:'set_active', id:button.dataset.active, active:button.dataset.value === 'true'}); adminMessage('Situação do usuário atualizada.'); await loadUsers(); }
+      catch (e) { adminMessage(e.message, true); }
+    });
+  }
+
+  async function openUserAdmin() {
+    if (profile?.role !== 'admin') return;
+    document.getElementById('vfUserAdmin').classList.remove('hidden');
+    adminMessage('Carregando usuários...');
+    try { await loadUsers(); adminMessage(''); }
+    catch (e) { adminMessage(e.message, true); }
+  }
+
+  async function createUser() {
+    const button = document.getElementById('vfCreateUser');
+    button.disabled = true;
+    try {
+      await adminRequest({action:'create', full_name:document.getElementById('vfNewFullName').value, cpf:document.getElementById('vfNewCpf').value, username:document.getElementById('vfNewUsername').value, password:document.getElementById('vfNewPassword').value, role:document.getElementById('vfNewRole').value});
+      ['vfNewFullName','vfNewCpf','vfNewUsername','vfNewPassword'].forEach(id => document.getElementById(id).value = '');
+      adminMessage('Usuário cadastrado com sucesso.');
+      await loadUsers();
+    } catch (e) { adminMessage(e.message, true); }
+    finally { button.disabled = false; }
+  }
+
+  function recoveryRequest() {
+    const name = prompt('Informe seu nome completo:');
+    if (!name) return;
+    const cpf = prompt('Informe seu CPF:');
+    if (!cpf) return;
+    const message = `Olá! Preciso de ajuda com meu acesso à Plataforma Fiscal Vital.\nNome: ${name}\nCPF: ${cpf}\nMotivo: esqueci meu usuário ou senha.`;
+    window.open(`https://wa.me/${RECOVERY_WHATSAPP}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
   }
 
   async function logout() {
@@ -717,8 +798,17 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
       }
     });
     document.getElementById('vfCloudLogin').onclick = login;
+    document.getElementById('vfCloudUsers').onclick = openUserAdmin;
     document.getElementById('vfCloudLogout').onclick = logout;
+    document.getElementById('vfCloudRecovery').onclick = recoveryRequest;
+    document.getElementById('vfUserAdminClose').onclick = () => document.getElementById('vfUserAdmin').classList.add('hidden');
+    document.getElementById('vfCreateUser').onclick = createUser;
+    document.getElementById('vfNewCpf').oninput = event => event.target.value = maskCpf(event.target.value);
     document.getElementById('vfCloudPassword').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+    document.getElementById('vfClosingFrame')?.addEventListener('load', event => {
+      try { event.target.contentDocument?.getElementById('usersBtn')?.classList.add('hidden'); }
+      catch (error) { console.warn('Não foi possível ocultar o controle local antigo.', error); }
+    });
     const {data: {session}} = await client.auth.getSession();
     if (session) {
       try { await enterCloud(session); }

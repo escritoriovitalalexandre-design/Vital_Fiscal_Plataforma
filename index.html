@@ -481,8 +481,9 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
   function injectUi() {
     const style = document.createElement('style');
     style.textContent = `
-      #vfCloudStatus{position:static;min-width:0;width:100%;padding:0;background:transparent;border:0;box-shadow:none;font:12px Arial;color:inherit}
-      #vfCloudStatus strong{display:block;margin-bottom:4px}#vfCloudStatus small{display:block;color:inherit;opacity:.82;line-height:1.35}#vfCloudStatus .cloudActions{display:flex;justify-content:flex-start;gap:6px;margin-top:9px}#vfCloudStatus button{border:1px solid #ffffff66;border-radius:6px;background:#ffffff18;color:inherit;padding:5px 9px;font:700 11px Arial;cursor:pointer}#vfCloudStatus button:hover{background:#ffffff2b}#vfCloudStatus button.hidden{display:none}
+      .saveStatus{display:none!important}
+      #vfCloudStatus{position:fixed;left:14px;bottom:24px;z-index:12000;width:250px;padding:16px 18px;border-radius:10px;background:#0a3868;border:1px solid #175087;box-shadow:none;font:12px Arial;color:#fff}
+      #vfCloudStatus strong{display:block;margin-bottom:4px;font-size:14px;line-height:1.4}#vfCloudStatus small{display:block;color:#cad8e6;line-height:1.35}#vfCloudStatus .cloudActions{display:flex;justify-content:flex-start;gap:6px;margin-top:10px}#vfCloudStatus button{border:1px solid #ffffff66;border-radius:6px;background:#ffffff18;color:#fff;padding:6px 10px;font:700 11px Arial;cursor:pointer}#vfCloudStatus button:hover{background:#ffffff2b}#vfCloudStatus button.hidden{display:none}
       #vfCloudStatus .lamp{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:8px;background:#d64035;box-shadow:0 0 0 4px #d6403518}
       #vfCloudStatus.online .lamp{background:#16a45b;box-shadow:0 0 0 4px #16a45b18}#vfCloudStatus.saving .lamp{background:#e49a11;box-shadow:0 0 0 4px #e49a1118}
       #vfCloudToast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);z-index:13000;padding:12px 18px;border-radius:9px;background:#087647;color:#fff;font:700 13px Arial;opacity:0;pointer-events:none;transition:.2s}
@@ -495,13 +496,13 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
       .vfRecovery{display:block!important;margin:13px auto 0!important;padding:0!important;border:0!important;background:transparent!important;color:#087e98!important;text-decoration:underline;font:700 12px Arial!important;cursor:pointer}
       #vfUserAdmin{position:fixed;inset:0;z-index:16000;display:grid;place-items:center;padding:20px;background:#09223c99}#vfUserAdmin.hidden{display:none}.vfAdminBox{width:min(980px,97vw);max-height:92vh;overflow:auto;background:#fff;border-radius:15px;padding:24px;box-shadow:0 35px 90px #001a;font:13px Arial;color:#173247}.vfAdminHead{display:flex;justify-content:space-between;gap:15px}.vfAdminHead h2{margin:0}.vfAdminHead button,.vfAdminBox button{border:1px solid #c7d5dd;border-radius:7px;background:#fff;padding:8px 11px;font-weight:700;cursor:pointer}.vfUserForm{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:9px;align-items:end;margin:20px 0;padding:15px;border:1px solid #d8e2e7;border-radius:10px;background:#f8fbfc}.vfUserForm label{font-size:11px}.vfUserForm input,.vfUserForm select{width:100%;margin-top:5px;padding:9px;border:1px solid #c9d7df;border-radius:7px}.vfUserForm button{background:#079bb4;color:#fff;border:0;padding:10px 13px}.vfUsersTable{width:100%;border-collapse:collapse}.vfUsersTable th{background:#174866;color:#fff}.vfUsersTable th,.vfUsersTable td{padding:9px;border-bottom:1px solid #dce5ea;text-align:left}.vfUsersTable .off{color:#b43d34}.vfUsersTable .on{color:#087647}.vfUsersTable button{margin:2px}.vfAdminMessage{min-height:18px;margin:7px 0;font-weight:700}.vfAdminMessage.error{color:#b43d34}.vfAdminMessage.ok{color:#087647}
       @media(max-width:850px){.vfUserForm{grid-template-columns:1fr 1fr}.vfUserForm label:first-child{grid-column:1/-1}.vfUsersTable{min-width:760px}}
+      @media(max-width:1100px){#vfCloudStatus{left:8px;bottom:18px;width:68px;padding:12px 7px;text-align:center}#vfCloudStatus strong{font-size:0}#vfCloudStatus strong .lamp{margin:0}#vfCloudStatus small{display:none}#vfCloudStatus .cloudActions{display:grid;gap:5px}#vfCloudStatus button{padding:5px 2px;font-size:9px}}
+      @media(max-width:680px){#vfCloudStatus{display:none}}
     `;
     document.head.appendChild(style);
 
-    const sidebarStatus = document.querySelector('.saveStatus');
     const cloudStatusHtml = `<div id="vfCloudStatus"><strong><span class="lamp"></span><span data-title>Conectando ao Supabase...</span></strong><small data-detail>Aguarde a confirmação do servidor.</small><div class="cloudActions"><button id="vfCloudUsers" class="hidden" type="button">Usuários</button><button id="vfCloudLogout" type="button">Sair</button></div></div>`;
-    if (sidebarStatus) sidebarStatus.innerHTML = cloudStatusHtml;
-    else document.body.insertAdjacentHTML('beforeend', cloudStatusHtml);
+    document.body.insertAdjacentHTML('beforeend', cloudStatusHtml);
 
     document.body.insertAdjacentHTML('beforeend', `
       <div id="vfCloudToast"></div>

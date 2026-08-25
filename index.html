@@ -634,9 +634,55 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     return result;
   }
 
+  function replaceEntityInRaw(raw, entityType, entityKey, value, deleted = false) {
+    const definition = entityDefinitions[entityType];
+    const storageKey = definition.storageKey;
+    const parsed = safeJson(raw) ?? (storageKey === 'vitalFiscalData' ? {} : []);
+    const list = definition.list(parsed);
+    const nextList = deleted
+      ? list.filter(item => definition.identity(item) !== entityKey)
+      : [value, ...list.filter(item => definition.identity(item) !== entityKey)];
+    return JSON.stringify(storageKey === 'vitalFiscalData'
+      ? {...parsed, [entityType === 'client' ? 'clients' : 'assessments']: nextList}
+      : nextList);
+  }
+
+  async function resolveEntityConflict(context) {
+    if (!context) return false;
+    const {data, error} = await client.from('app_entities')
+      .select('entity_type,entity_key,value,revision,updated_at,updated_by')
+      .eq('entity_type', context.entityType)
+      .eq('entity_key', context.entityKey)
+      .maybeSingle();
+    if (error) throw error;
+    const keepLocal = window.confirm('Este registro foi alterado por outro usuário antes da sua gravação.\n\nClique em OK para manter e salvar a sua versão, ou em Cancelar para carregar a versão mais recente do servidor.');
+    const revisionKey = `${context.entityType}|${context.entityKey}`;
+    const snapshotRaw = snapshots.get(context.storageKey);
+    const serverRaw = replaceEntityInRaw(snapshotRaw, context.entityType, context.entityKey, data?.value, !data);
+    if (data) revisions.set(revisionKey, Number(data.revision));
+    else revisions.delete(revisionKey);
+    snapshots.set(context.storageKey, serverRaw);
+    if (keepLocal) {
+      setStatus('saving', 'Atualizando sua versão...', 'A versão mais recente foi conferida antes de salvar.');
+      return true;
+    }
+    applyingRemote = true;
+    localStorage.setItem(context.storageKey, serverRaw);
+    if (context.entityType === 'client') {
+      const fiscal = safeJson(serverRaw) || {};
+      localStorage.setItem('vitalFechamentoClientesProvisorios', JSON.stringify(fiscal.clients || []));
+    }
+    applyingRemote = false;
+    setStatus('online', 'Conectado ao Supabase', 'A versão mais recente do servidor foi carregada.');
+    toast('Versão mais recente do servidor carregada.');
+    return false;
+  }
+
   async function saveKey(key, raw, showToast = true) {
     if (saving || applyingRemote) return;
     saving = true;
+    let conflictContext = null;
+    let retryAfterConflict = false;
     setStatus('saving', 'Salvando no servidor...', 'Não feche esta tela.');
     try {
       const previousRaw = snapshots.get(key);
@@ -648,6 +694,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
         for (const [entityKey, value] of current) {
           if (JSON.stringify(previous.get(entityKey)) === JSON.stringify(value)) continue;
           const revisionKey = `${currentGroup.type}|${entityKey}`;
+          conflictContext = {storageKey:key, entityType:currentGroup.type, entityKey, value, operation:'save'};
           const {data, error} = await client.rpc('save_app_entity', {
             p_entity_type: currentGroup.type,
             p_entity_key: entityKey,
@@ -662,6 +709,7 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
         for (const entityKey of previous.keys()) {
           if (current.has(entityKey)) continue;
           const revisionKey = `${currentGroup.type}|${entityKey}`;
+          conflictContext = {storageKey:key, entityType:currentGroup.type, entityKey, operation:'delete'};
           const {error} = await client.rpc('delete_app_entity', {
             p_entity_type: currentGroup.type,
             p_entity_key: entityKey,
@@ -678,10 +726,20 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     } catch (error) {
       console.error(error);
       const conflict = String(error.message || '').includes('CONFLITO_DE_VERSAO');
-      setStatus('', conflict ? 'Conflito no mesmo registro' : 'Erro ao salvar no servidor', conflict ? 'Outro usuário alterou esta mesma empresa. Seus campos foram preservados.' : 'Verifique sua internet e tente novamente.');
-      toast(conflict ? 'A mesma empresa foi alterada por outro usuário. Confira antes de salvar novamente.' : 'Não foi possível salvar no servidor.', true);
+      if (conflict) {
+        try { retryAfterConflict = await resolveEntityConflict(conflictContext); }
+        catch (resolutionError) {
+          console.error('Falha ao resolver conflito:', resolutionError);
+          setStatus('', 'Conflito no mesmo registro', 'Não foi possível consultar a versão mais recente.');
+          toast('Não foi possível resolver o conflito. Tente novamente.', true);
+        }
+      } else {
+        setStatus('', 'Erro ao salvar no servidor', 'Verifique sua internet e tente novamente.');
+        toast('Não foi possível salvar no servidor.', true);
+      }
     } finally {
       saving = false;
+      if (retryAfterConflict) setTimeout(() => saveKey(key, localStorage.getItem(key), showToast), 50);
     }
   }
 

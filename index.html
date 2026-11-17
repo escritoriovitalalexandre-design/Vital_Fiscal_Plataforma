@@ -895,6 +895,9 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
     setStatus('saving', 'Salvando no servidor...', 'Não feche esta tela.');
     try {
       const previousRaw = snapshots.get(key);
+      // V22: empresas do Caixa sem trava não são editadas por usuários; diferenças nelas vêm de ajustes
+      // automáticos (normalização, cadastro único). Em vez de travar toda a gravação, voltam à versão do servidor.
+      const discard = [];
       for (const currentGroup of entityGroups(key, raw)) {
         const previousGroup = entityGroups(key, previousRaw).find(group => group.type === currentGroup.type);
         const current = mapItems(currentGroup.items, currentGroup.definition.identity);
@@ -904,8 +907,8 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
           if (JSON.stringify(previous.get(entityKey)) === JSON.stringify(value)) continue;
           const revisionKey = `${currentGroup.type}|${entityKey}`;
           if(currentGroup.type==='caixa_empresa' && !window.vfCaixaHasLock(entityKey)) {
-            backupPendingCaixa(raw, 'sem_bloqueio');
-            throw Error('CAIXA_SEM_BLOQUEIO: selecione e bloqueie a empresa antes de salvar');
+            discard.push([entityKey, previous.get(entityKey)]);
+            continue;
           }
           conflictContext = {storageKey:key, entityType:currentGroup.type, entityKey, value, operation:'save'};
           const {data, error} = await client.rpc('save_app_entity', {
@@ -922,7 +925,8 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
         for (const entityKey of previous.keys()) {
           if (current.has(entityKey)) continue;
           if(currentGroup.type==='caixa_empresa'){
-            throw Error('CAIXA_EXCLUSAO_BLOQUEADA: exclusão de empresa exige procedimento específico');
+            discard.push([entityKey, previous.get(entityKey)]);
+            continue;
           }
           const revisionKey = `${currentGroup.type}|${entityKey}`;
           conflictContext = {storageKey:key, entityType:currentGroup.type, entityKey, operation:'delete'};
@@ -935,7 +939,16 @@ const observer=new MutationObserver(()=>{let hasDashboard=[...document.querySele
           revisions.delete(revisionKey);
         }
       }
-      snapshots.set(key, raw);
+      let savedRaw = raw;
+      if (discard.length) {
+        for (const [entityKey, value] of discard) savedRaw = vfMergeCaixa(savedRaw, 'caixa_empresa', entityKey, value, !value);
+        applyingRemote = true;
+        localStorage.setItem(key, savedRaw);
+        applyingRemote = false;
+        console.warn('Caixa: ajustes automáticos em empresas sem trava foram descartados', discard.map(d => d[0]));
+        window.dispatchEvent(new CustomEvent('vf:remote-update', {detail: {key, entityType: 'caixa_empresa'}}));
+      }
+      snapshots.set(key, savedRaw);
       const time = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
       setStatus('online', 'Conectado ao Supabase', `Salvo às ${time} por ${profile.full_name}.`);
       if (showToast) toast('Salvo com sucesso no servidor.');

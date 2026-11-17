@@ -375,6 +375,9 @@ function allTitles(){
     byCompany(db[s.t]).forEach(function(r){
       if(s.t==="expenses"&&r.noExpenseThisMonth)return;
       var n=(r.installments||[]).length;
+      /* V22: a entrada do financiamento aparece como pagamento do contrato (Pago na data do contrato) */
+      if(s.t==="finance"&&Number(r.entryAmount)>0)out.push({src:s.t,origin:s.origin,dir:"pagar",rec:r,n:n,party:r.institutionName||"",desc:"Entrada — "+(r.description||r.kind||""),
+        p:{id:"entrada-"+r.id,number:0,dueDate:r.date,amount:Number(r.entryAmount),status:"Pago",paidDate:r.date,paidAmount:Number(r.entryAmount),isEntry:true,noCash:r.entryFromCash===false}});
       (r.installments||[]).forEach(function(p){
         out.push({src:s.t,origin:s.origin,dir:s.dir||r.dir||"pagar",rec:r,p:p,n:n,party:r.partyName||r.institutionName||"",
           desc:r.expenseTypeName?(r.expenseTypeName+(r.description&&r.description!==r.expenseTypeName?" — "+r.description:"")):(r.description||r.kind||"")})
@@ -389,12 +392,12 @@ function cashMoves(){
   var m=[];
   // Compras e faturamento movimentam o caixa pelas parcelas pagas ou recebidas.
   allTitles().forEach(function(t){
-    if(t.p.status!=="Pago")return;
-    m.push({date:t.p.paidDate||t.p.dueDate||"",dir:t.dir==="receber"?"in":"out",amount:paidVal(t.p),origin:t.origin,desc:(t.party?t.party+" — ":"")+t.desc+(t.n>1?" ("+t.p.number+"/"+t.n+")":""),ref:{src:t.src,id:t.rec.id}})
+    if(t.p.status!=="Pago"||t.p.noCash)return;
+    m.push({date:t.p.paidDate||t.p.dueDate||"",dir:t.dir==="receber"?"in":"out",amount:paidVal(t.p),origin:t.origin,desc:(t.party?t.party+" — ":"")+t.desc+(t.n>1&&!t.p.isEntry?" ("+t.p.number+"/"+t.n+")":""),ref:{src:t.src,id:t.rec.id}})
   });
   byCompany(db.finance).forEach(function(f){
     if(Number(f.cashIn)>0)m.push({date:f.date,dir:"in",amount:Number(f.cashIn),origin:"Financiamento",desc:"Crédito "+(f.kind||"")+" — "+(f.institutionName||""),ref:{src:"finance",id:f.id}});
-    if(Number(f.entryAmount)>0&&f.entryFromCash!==false&&!financeEntryExpense(f.id))m.push({date:f.date,dir:"out",amount:Number(f.entryAmount),origin:"Financiamento",desc:"Entrada "+(f.kind||"")+" — "+(f.description||""),ref:{src:"finance",id:f.id}});
+    /* a entrada entra no caixa pelo título "Entrada" do contrato (allTitles) */
   });
   byCompany(db.profits).forEach(function(p){m.push({date:p.date||(p.competence+"-01"),dir:"out",amount:p.amount,origin:"Lucros",desc:"Distribuição — "+(p.partnerName||""),ref:{src:"profits",id:p.id}})});
   byCompany(db.returns).forEach(function(r){m.push({date:r.competence?r.competence+"-01":r.date,dir:r.type==="Devolução de compra"?"in":"out",amount:r.amount,origin:"Devolução",desc:r.type+" — "+(r.description||r.documentNumber||""),ref:{src:"returns",id:r.id}})});
@@ -771,6 +774,10 @@ function renderCash(){
     if(CORE.indexOf(m.origin)<0)oth[i]+=v;
     if(m.origin==="Compra")cp[i]+=m.amount;
     if(m.origin!=="Lucros")sal[i]+=v});
+  /* V22: na planilha do Caixa, financiamento pago (entrada e parcelas) soma em Desp. mensal */
+  var finPaid=[];for(var fi=0;fi<12;fi++)finPaid.push(0);
+  yMoves.forEach(function(m){if(m.origin==="Financiamento"&&m.dir==="out")finPaid[Number(m.date.slice(5,7))-1]+=m.amount});
+  mt.forEach(function(r,i){r.desp=r.d;r.d+=finPaid[i]});
   // como na planilha: Caixa atual = Caixa anterior + Desempenho − Lucros distribuídos  →  Desempenho = variação do caixa + lucros
   var caixaAtual=lastM?cm[lastM-1].closing:yo.amount;
   var lucrosDist=sum(moves.filter(function(m){return m.origin==="Lucros"&&m.date.slice(0,4)===String(y)&&Number(m.date.slice(5,7))<=Math.max(lastM,0)}),function(m){return m.amount});
@@ -815,7 +822,7 @@ function renderCash(){
   var rows=mt.map(function(r,i){var fut=i>=lastM&&!(r.v||r.p||r.d||r.oth||r.cp);
     return tr([MONTH_NAMES[i],[mz(r.pg),"num"],[mz(r.vmg),"num"],[mz(r.vs),"num"],[mz(r.vc),"num"],[mz(r.d),"num"],[fut?'<span class="muted">–</span>':smoney(r.saldo),"num"]],
       S.mode==="month"&&r.month===S.month?"cur":"","openMonth:"+r.month)});
-  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num">Desp. mensal</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
+  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num" title="Despesas pagas no mês + financiamentos pagos (entrada e parcelas)">Desp. mensal</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
     '<tr class="tot"><td>TOTAL ANO</td><td class="num">'+money(tot("pg"))+'</td><td class="num">'+money(tot("vmg"))+'</td><td class="num">'+money(tot("vs"))+'</td><td class="num">'+money(tot("vc"))+'</td><td class="num">'+money(tot("d"))+'</td><td class="num">'+smoney(tot("saldo"))+'</td></tr>'+
     '<tr class="avg"><td>MÉDIAS ANO <span class="avgCount" title="Meses usados no cálculo da média">'+n+' '+(n===1?"mês":"meses")+'</span></td><td class="num">'+money(avg("pg"))+'</td><td class="num">'+money(avg("vmg"))+'</td><td class="num">'+money(avg("vs"))+'</td><td class="num">'+money(avg("vc"))+'</td><td class="num">'+money(avg("d"))+'</td><td class="num">'+money(avg("saldo"))+'</td></tr>'+
     '</tfoot></table></div>'+
@@ -973,9 +980,9 @@ function renderTitles(){
     var kp='<div class="kpiGrid" style="margin-bottom:12px">'+mini("Em aberto ("+open.length+")",money(sum(open,function(t){return t.p.amount})),"orange")+mini("Vencidas ("+late.length+")",money(sum(late,function(t){return t.p.amount})),"red")+
       mini("Pagas / recebidas ("+paid.length+")",money(sum(paid,function(t){return paidVal(t.p)})),"green")+'</div>';
     var rows=list.map(function(t){var p=t.p,s=isLate(p)?"Vencido":p.status==="Pago"?(t.dir==="receber"?"Recebido":"Pago"):p.status==="Em aberto"?"A "+t.dir:p.status,ref=t.src+":"+t.rec.id+":"+p.id;
-      return tr([p.status==="Em aberto"?'<input type="checkbox" data-sel="'+ref+'">':"",fmtDate(p.dueDate),"<b>"+compLabel(t.rec.competence)+"</b>",p.status==="Pago"?"<b>"+fmtDate(p.paidDate)+"</b>":"",t.dir==="pagar"?'<span class="neg">Pagar</span>':'<span class="pos">Receber</span>',t.origin,esc(t.party),esc(t.desc)+(t.n>1?' <small class="muted">('+p.number+'/'+t.n+')</small>':""),
+      return tr([p.status==="Em aberto"?'<input type="checkbox" data-sel="'+ref+'">':"",fmtDate(p.dueDate),"<b>"+compLabel(t.rec.competence)+"</b>",p.status==="Pago"?"<b>"+fmtDate(p.paidDate)+"</b>":"",t.dir==="pagar"?'<span class="neg">Pagar</span>':'<span class="pos">Receber</span>',t.origin,esc(t.party),esc(t.desc)+(p.isEntry?(p.noCash?' <small class="muted">(não saiu do caixa)</small>':""):t.n>1?' <small class="muted">('+p.number+'/'+t.n+')</small>':""),
         [p.status==="Pago"?money(paidVal(p)):money(p.amount),"num"],statusBadge(s),
-        acts([p.status==="Em aberto"?btn("success","pay:"+ref,"✔ "+payLabel(t.dir)):p.status==="Pago"?btn("warning","unpay:"+ref,"Estornar"):btn("secondary","reopen:"+ref,"Reabrir"),
+        p.isEntry?acts([btn("secondary","edit:finance:"+t.rec.id,"Abrir contrato")]):acts([p.status==="Em aberto"?btn("success","pay:"+ref,"✔ "+payLabel(t.dir)):p.status==="Pago"?btn("warning","unpay:"+ref,"Estornar"):btn("secondary","reopen:"+ref,"Reabrir"),
           p.status==="Em aberto"&&t.n>1?btn("secondary","cancelInst:"+ref,"Cancelar parcela"):"",delBtn(t.src,t.rec.id)])],s==="Vencido"?"late":p.status==="Cancelado"?"off":"","edit:"+t.src+":"+t.rec.id)});
     return kp+tbl(['<input type="checkbox" data-act="selAll" title="Marcar todas">',"Vencimento","Comp.","Pago em","Tipo","Origem","Fornecedor / Cliente","Descrição",["Valor","num"],"Situação",""],rows,null,"Nenhuma conta para este período / filtro.")
   };
@@ -991,8 +998,8 @@ function renderFinance(){
   RES[k]=function(){
     var base=fv(k,"scope")==="period"?byCompany(db.finance).filter(function(x){return inPeriodDate(x.date)}):byCompany(db.finance);
     var list=base.filter(function(x){return txtMatch(k,[x.institutionName,x.description,x.kind])&&(!fv(k,"kind")||x.kind===fv(k,"kind"))});
-    var paidAmt=function(x){return sum((x.installments||[]).filter(function(p){return p.status==="Pago"}),paidVal)};
-    var rows=list.map(function(x){var st=instStatus(x);return tr([fmtDate(x.date),esc(x.kind),esc(x.institutionName),esc(x.description),[money(x.amount),"num"],'<small>'+parcText(x)+'</small>',[money(paidAmt(x)),"num"],[money(openAmount(x)),"num"],statusBadge(st==="Em aberto"?"A pagar":st),
+    var paidAmt=function(x){return sum((x.installments||[]).filter(function(p){return p.status==="Pago"}),paidVal)+(Number(x.entryAmount)||0)};
+    var rows=list.map(function(x){var st=instStatus(x);return tr([fmtDate(x.date),esc(x.kind),esc(x.institutionName),esc(x.description),[money(x.amount),"num"],'<small>'+(Number(x.entryAmount)>0?'entrada '+money(x.entryAmount)+(parcText(x)?' + ':''):'')+parcText(x)+'</small>',[money(paidAmt(x)),"num"],[money(openAmount(x)),"num"],statusBadge(st==="Em aberto"?"A pagar":st),
       acts([quickPay("finance",x,"pagar"),btn("secondary","inst:finance:"+x.id,"Parcelas"),delBtn("finance",x.id)])],st==="Vencido"?"late":"","edit:finance:"+x.id)});
     return tbl(["Data","Tipo","Instituição","Descrição",["Contratado","num"],"Parcelas",["Pago","num"],["Saldo devedor","num"],"Situação",""],rows,
       [list.length+" contrato(s)","","","",[money(sum(list,function(x){return x.amount})),"num"],"",[money(sum(list,paidAmt)),"num"],[money(sum(list,openAmount)),"num"],"",""],"Nenhum contrato cadastrado.")
@@ -1360,24 +1367,10 @@ function usage(kind,id){
   if(kind==="partners")return any(["profits"],"partnerId");
   return false
 }
-/* V22: a entrada do financiamento paga pelo caixa vira uma despesa paga, ligada ao contrato (financeEntryId).
-   Assim aparece em Despesas, em Pagar e Receber e soma na coluna Desp. mensal do Caixa. Edita-se pelo contrato. */
-function financeEntryExpense(fid){return (db.expenses||[]).find(function(e){return e.financeEntryId===fid})}
-function syncFinanceEntryExpense(f){
-  var ex=financeEntryExpense(f.id),amt=Number(f.entryAmount)||0;
-  if(!(amt>0)||f.entryFromCash===false){if(ex)db.expenses=db.expenses.filter(function(e){return e!==ex});return}
-  var typ=(db.expenseTypes||[]).find(function(t){return t.active!==false&&/^financiamento/i.test(t.name||"")})||{},day=f.date||TODAY;
-  var r={id:ex?ex.id:uid(),companyId:f.companyId,date:day,expenseTypeId:typ.id||"",expenseTypeName:typ.name||"Financiamento",partyId:"",partyName:f.institutionName||"",documentTypeId:"",documentTypeName:"",documentNumber:"",
-    description:"Entrada — "+(f.description||f.kind||"financiamento"),historyCode:typ.historyCode||"",history:(ex&&ex.history)||"",amount:amt,dueDate:day,competence:f.competence||day.slice(0,7),cond:"avista",
-    installments:[{id:(ex&&ex.installments&&ex.installments[0]&&ex.installments[0].id)||uid(),number:1,dueDate:day,amount:amt,status:"Pago",paidDate:day,paidAmount:amt}],
-    recurringId:"",noExpenseThisMonth:false,area:"Outras",financeEntryId:f.id};
-  if(ex)Object.assign(ex,r);else db.expenses.push(r)
-}
-/* contratos antigos: cria a despesa da entrada que ainda não existe (o efeito no caixa não muda) */
-function migrateFinanceEntries(){var changed=false;byCompany(db.finance).forEach(function(f){if(Number(f.entryAmount)>0&&f.entryFromCash!==false&&!financeEntryExpense(f.id)){syncFinanceEntryExpense(f);changed=true}});return changed}
+/* V22: a entrada do financiamento fica no próprio contrato (título "Entrada", pago na data do contrato).
+   Uma versão de teste anterior criava uma despesa automática para a entrada (financeEntryId): ela é removida aqui. */
+function migrateFinanceEntries(){var before=(db.expenses||[]).length;db.expenses=(db.expenses||[]).filter(function(e){return !e.financeEntryId});return db.expenses.length!==before}
 function del(kind,id){
-  if(kind==="expenses"&&findBy(db.expenses,id).financeEntryId){alert("Esta despesa é a entrada de um financiamento. Para alterar ou excluir, abra o contrato em Financiamentos (altere a entrada ou marque que ela não saiu do caixa).");return}
-  if(kind==="finance"){var fx=financeEntryExpense(id);if(fx&&confirm("Excluir este contrato? A despesa da entrada ("+money(fx.amount)+") também será excluída.")){db.expenses=db.expenses.filter(function(e){return e!==fx});db.finance=db.finance.filter(function(y){return y.id!==id});if(modalRefresh&&$("modalRoot").innerHTML)closeModal();save()}if(fx)return}
   if(usage(kind,id)){alert("Este cadastro já está em uso em lançamentos. Use “Inativar” — ele some das listas e o histórico é mantido.");return}
   if(kind==="companies"&&db.companies.length<=1){alert("É preciso manter ao menos uma empresa.");return}
   var x=findBy(db[kind],id),msg="Excluir este lançamento?";
@@ -1613,7 +1606,6 @@ function noExpenseOccurrence(x,dueDate){
 }
 function openExpense(id){
   var x=id?findBy(db.expenses,id):{},ctl;
-  if(x.financeEntryId){alert("Esta despesa é a entrada de um financiamento. Ela é alterada pelo contrato — vou abrir o contrato.");openFinance(x.financeEntryId);return}
   modal(id?"Editar despesa":"Nova despesa",
     (x.recurringId?'<div class="notice"><span class="badge fix">conta fixa</span> lançada automaticamente'+(!x.noExpenseThisMonth&&!(x.amount>0)?' — <b>informe o valor da guia/conta</b>.':".")+'</div>':
       '<div class="notice">A despesa entra no mês da <b>data de pagamento</b>. Ex.: guia da competência 08 paga em 11 → aparece em novembro.</div>')+
@@ -1690,11 +1682,13 @@ function openInstallments(src,id){
   modalRefresh=function(){var rr=findBy(db[src],id);if(!rr.id){closeModal();return}$("modalBody").innerHTML=body(rr)};
   function body(r){
     var ps=r.installments||[],paid=ps.filter(function(p){return p.status==="Pago"}),open=ps.filter(function(p){return p.status==="Em aberto"});
-    return '<div class="kpiGrid" style="margin-bottom:12px">'+mini(dirRec?"Recebido":"Pago",money(sum(paid,paidVal))+" ("+paid.length+" de "+ps.length+")","green")+
+    var ent=src==="finance"&&Number(r.entryAmount)>0?Number(r.entryAmount):0;
+    var entRow=ent?tr(["<b>Entrada</b>",fmtDate(r.date),[money(ent),"num"],statusBadge("Pago"),fmtDate(r.date),[money(ent),"num"],'<small class="muted">'+(r.entryFromCash===false?"não saiu do caixa":"altere pelo contrato")+'</small>'],""):"";
+    return '<div class="kpiGrid" style="margin-bottom:12px">'+mini(dirRec?"Recebido":"Pago",money(sum(paid,paidVal)+ent)+" ("+(ent?"entrada + ":"")+paid.length+" de "+ps.length+")","green")+
       mini("Em aberto",money(sum(open,function(p){return p.amount}))+" ("+open.length+")","orange")+mini("Vencidas",String(ps.filter(isLate).length),"red")+'</div>'+
-      tbl(["Parcela","Vencimento",["Valor","num"],"Situação","Pago em",["Valor pago","num"],""],ps.map(function(p){var ref=src+":"+r.id+":"+p.id,s=isLate(p)?"Vencido":p.status==="Pago"?(dirRec?"Recebido":"Pago"):p.status==="Em aberto"?(dirRec?"A receber":"A pagar"):p.status;
+      tbl(["Parcela","Vencimento",["Valor","num"],"Situação","Pago em",["Valor pago","num"],""],(entRow?[entRow]:[]).concat(ps.map(function(p){var ref=src+":"+r.id+":"+p.id,s=isLate(p)?"Vencido":p.status==="Pago"?(dirRec?"Recebido":"Pago"):p.status==="Em aberto"?(dirRec?"A receber":"A pagar"):p.status;
         return tr([p.number+"/"+ps.length,fmtDate(p.dueDate),[money(p.amount),"num"],statusBadge(s),fmtDate(p.paidDate),[p.status==="Pago"?money(paidVal(p)):"","num"],
-          acts([p.status==="Em aberto"?btn("success","pay:"+ref,"✔ "+(dirRec?"Receber":"Pagar")):p.status==="Pago"?btn("warning","unpay:"+ref,"Estornar"):btn("secondary","reopen:"+ref,"Reabrir"),p.status==="Em aberto"?btn("secondary","cancelInst:"+ref,"Cancelar"):""])],s==="Vencido"?"late":p.status==="Cancelado"?"off":"")}))+
+          acts([p.status==="Em aberto"?btn("success","pay:"+ref,"✔ "+(dirRec?"Receber":"Pagar")):p.status==="Pago"?btn("warning","unpay:"+ref,"Estornar"):btn("secondary","reopen:"+ref,"Reabrir"),p.status==="Em aberto"?btn("secondary","cancelInst:"+ref,"Cancelar"):""])],s==="Vencido"?"late":p.status==="Cancelado"?"off":"")})))+
       '<p class="subtle">Para mudar valores ou datas das parcelas, feche e clique no lançamento para editar.</p>'
   }
   modal("Parcelas — "+esc(r.partyName||r.institutionName||"")+" "+esc(r.expenseTypeName||r.description||""),body(r),null,null,{width:900})
@@ -1749,8 +1743,7 @@ function openFinance(id){
       if(!need(!cashMode||cashInV>0,"Informe o valor que caiu na conta, ou escolha “Não — o banco pagou direto o vendedor”."))return false;
       if(cashMode&&entryV>0&&entryCash&&cashInV+entryV>amount+0.01&&!confirm("Atenção: o valor creditado na conta ("+money(cashInV)+") mais a entrada ("+money(entryV)+") passam do valor contratado ("+money(amount)+").\n\nNo financiamento de bem o banco paga o vendedor e só a entrada sai do caixa. Se for esse o caso, escolha “Não — o banco pagou direto o vendedor”.\n\nSalvar mesmo assim?"))return false;
       var r={id:x.id||uid(),companyId:x.companyId||cid(),kind:get("fiKind"),institutionId:get("fiInstitution"),institutionName:inst.name||"",date:get("fiDate"),description:get("fiDesc"),amount:amount,entryAmount:entryV,entryFromCash:entryCash,cashIn:cashInV,competence:get("fiComp"),installments:pars};
-      if(id)Object.assign(x,r);else db.finance.push(r);
-      syncFinanceEntryExpense(id?x:r)
+      if(id)Object.assign(x,r);else db.finance.push(r)
     },
     function(){
       ["fiAmount","fiEntry","fiCashIn","fiParcTotal"].forEach(function(i){moneyMask(i)});

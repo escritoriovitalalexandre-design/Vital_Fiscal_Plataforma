@@ -394,7 +394,7 @@ function cashMoves(){
   });
   byCompany(db.finance).forEach(function(f){
     if(Number(f.cashIn)>0)m.push({date:f.date,dir:"in",amount:Number(f.cashIn),origin:"Financiamento",desc:"Crédito "+(f.kind||"")+" — "+(f.institutionName||""),ref:{src:"finance",id:f.id}});
-    if(Number(f.entryAmount)>0&&f.entryFromCash!==false)m.push({date:f.date,dir:"out",amount:Number(f.entryAmount),origin:"Financiamento",desc:"Entrada "+(f.kind||"")+" — "+(f.description||""),ref:{src:"finance",id:f.id}});
+    if(Number(f.entryAmount)>0&&f.entryFromCash!==false&&!financeEntryExpense(f.id))m.push({date:f.date,dir:"out",amount:Number(f.entryAmount),origin:"Financiamento",desc:"Entrada "+(f.kind||"")+" — "+(f.description||""),ref:{src:"finance",id:f.id}});
   });
   byCompany(db.profits).forEach(function(p){m.push({date:p.date||(p.competence+"-01"),dir:"out",amount:p.amount,origin:"Lucros",desc:"Distribuição — "+(p.partnerName||""),ref:{src:"profits",id:p.id}})});
   byCompany(db.returns).forEach(function(r){m.push({date:r.competence?r.competence+"-01":r.date,dir:r.type==="Devolução de compra"?"in":"out",amount:r.amount,origin:"Devolução",desc:r.type+" — "+(r.description||r.documentNumber||""),ref:{src:"returns",id:r.id}})});
@@ -802,7 +802,7 @@ function renderCash(){
   /* V22: aviso de possível pagamento em dobro — parcela paga no contrato de financiamento e também como despesa */
   var dupF=[];
   byCompany(db.expenses).forEach(function(x){
-    if(!/financ|empr[eé]stimo|cons[oó]rcio|capital de giro/i.test((x.expenseTypeName||"")+" "+(x.description||"")))return;
+    if(x.financeEntryId||!/financ|empr[eé]stimo|cons[oó]rcio|capital de giro/i.test((x.expenseTypeName||"")+" "+(x.description||"")))return;
     (x.installments||[]).forEach(function(p){
       if(p.status!=="Pago"||!p.paidDate||p.paidDate.slice(0,4)!==String(y))return;var v=paidVal(p),mk=p.paidDate.slice(0,7);
       byCompany(db.finance).forEach(function(f){(f.installments||[]).forEach(function(q){
@@ -813,11 +813,11 @@ function renderCash(){
   if(dupF.length)h+='<div class="alert orange" style="margin-top:12px;display:block"><b>⚠ Possível pagamento em dobro ('+dupF.length+')</b> — a parcela já é baixada no contrato em Financiamentos; se também foi lançada como despesa, o caixa sai duas vezes. Exclua a despesa repetida.<ul style="margin:8px 0 0 18px">'+dupF.map(function(t){return '<li>'+t+'</li>'}).join("")+'</ul></div>';
   mt.forEach(function(r,i){r.oth=oth[i];r.cp=cp[i];r.saldo=sal[i]});
   var rows=mt.map(function(r,i){var fut=i>=lastM&&!(r.v||r.p||r.d||r.oth||r.cp);
-    return tr([MONTH_NAMES[i],[mz(r.pg),"num"],[mz(r.vmg),"num"],[mz(r.vs),"num"],[mz(r.vc),"num"],[mz(r.d),"num"],[mz(r.oth),"num"],[fut?'<span class="muted">–</span>':smoney(r.saldo),"num"]],
+    return tr([MONTH_NAMES[i],[mz(r.pg),"num"],[mz(r.vmg),"num"],[mz(r.vs),"num"],[mz(r.vc),"num"],[mz(r.d),"num"],[fut?'<span class="muted">–</span>':smoney(r.saldo),"num"]],
       S.mode==="month"&&r.month===S.month?"cur":"","openMonth:"+r.month)});
-  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num">Desp. mensal</th><th class="num" title="Financiamentos (entrada, parcelas pagas e créditos na conta), ativo imobilizado e movimentos avulsos — valores que mexem no caixa mas não são compra, venda ou despesa">Financ. / outros</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
-    '<tr class="tot"><td>TOTAL ANO</td><td class="num">'+money(tot("pg"))+'</td><td class="num">'+money(tot("vmg"))+'</td><td class="num">'+money(tot("vs"))+'</td><td class="num">'+money(tot("vc"))+'</td><td class="num">'+money(tot("d"))+'</td><td class="num">'+smoney(tot("oth"))+'</td><td class="num">'+smoney(tot("saldo"))+'</td></tr>'+
-    '<tr class="avg"><td>MÉDIAS ANO <span class="avgCount" title="Meses usados no cálculo da média">'+n+' '+(n===1?"mês":"meses")+'</span></td><td class="num">'+money(avg("pg"))+'</td><td class="num">'+money(avg("vmg"))+'</td><td class="num">'+money(avg("vs"))+'</td><td class="num">'+money(avg("vc"))+'</td><td class="num">'+money(avg("d"))+'</td><td class="num">'+smoney(avg("oth"))+'</td><td class="num">'+money(avg("saldo"))+'</td></tr>'+
+  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num">Desp. mensal</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
+    '<tr class="tot"><td>TOTAL ANO</td><td class="num">'+money(tot("pg"))+'</td><td class="num">'+money(tot("vmg"))+'</td><td class="num">'+money(tot("vs"))+'</td><td class="num">'+money(tot("vc"))+'</td><td class="num">'+money(tot("d"))+'</td><td class="num">'+smoney(tot("saldo"))+'</td></tr>'+
+    '<tr class="avg"><td>MÉDIAS ANO <span class="avgCount" title="Meses usados no cálculo da média">'+n+' '+(n===1?"mês":"meses")+'</span></td><td class="num">'+money(avg("pg"))+'</td><td class="num">'+money(avg("vmg"))+'</td><td class="num">'+money(avg("vs"))+'</td><td class="num">'+money(avg("vc"))+'</td><td class="num">'+money(avg("d"))+'</td><td class="num">'+money(avg("saldo"))+'</td></tr>'+
     '</tfoot></table></div>'+
     '<p class="subtle">Clique no mês para abrir a visão mensal. As colunas de compras e faturamento mostram os totais pela competência. Despesas aparecem no mês do pagamento. O saldo considera vendas recebidas, compras e despesas pagas nas datas das baixas, além de devoluções, ativo, empréstimos, aportes e tarifas. <b>Total do Saldo mês = Desempenho</b>; Caixa '+y+' = Caixa '+(y-1)+' + Desempenho − Lucros distribuídos.</p></div>';
   // entradas/saídas sem devoluções (as devoluções têm quadros próprios)
@@ -1360,7 +1360,24 @@ function usage(kind,id){
   if(kind==="partners")return any(["profits"],"partnerId");
   return false
 }
+/* V22: a entrada do financiamento paga pelo caixa vira uma despesa paga, ligada ao contrato (financeEntryId).
+   Assim aparece em Despesas, em Pagar e Receber e soma na coluna Desp. mensal do Caixa. Edita-se pelo contrato. */
+function financeEntryExpense(fid){return (db.expenses||[]).find(function(e){return e.financeEntryId===fid})}
+function syncFinanceEntryExpense(f){
+  var ex=financeEntryExpense(f.id),amt=Number(f.entryAmount)||0;
+  if(!(amt>0)||f.entryFromCash===false){if(ex)db.expenses=db.expenses.filter(function(e){return e!==ex});return}
+  var typ=(db.expenseTypes||[]).find(function(t){return t.active!==false&&/^financiamento/i.test(t.name||"")})||{},day=f.date||TODAY;
+  var r={id:ex?ex.id:uid(),companyId:f.companyId,date:day,expenseTypeId:typ.id||"",expenseTypeName:typ.name||"Financiamento",partyId:"",partyName:f.institutionName||"",documentTypeId:"",documentTypeName:"",documentNumber:"",
+    description:"Entrada — "+(f.description||f.kind||"financiamento"),historyCode:typ.historyCode||"",history:(ex&&ex.history)||"",amount:amt,dueDate:day,competence:f.competence||day.slice(0,7),cond:"avista",
+    installments:[{id:(ex&&ex.installments&&ex.installments[0]&&ex.installments[0].id)||uid(),number:1,dueDate:day,amount:amt,status:"Pago",paidDate:day,paidAmount:amt}],
+    recurringId:"",noExpenseThisMonth:false,area:"Outras",financeEntryId:f.id};
+  if(ex)Object.assign(ex,r);else db.expenses.push(r)
+}
+/* contratos antigos: cria a despesa da entrada que ainda não existe (o efeito no caixa não muda) */
+function migrateFinanceEntries(){var changed=false;byCompany(db.finance).forEach(function(f){if(Number(f.entryAmount)>0&&f.entryFromCash!==false&&!financeEntryExpense(f.id)){syncFinanceEntryExpense(f);changed=true}});return changed}
 function del(kind,id){
+  if(kind==="expenses"&&findBy(db.expenses,id).financeEntryId){alert("Esta despesa é a entrada de um financiamento. Para alterar ou excluir, abra o contrato em Financiamentos (altere a entrada ou marque que ela não saiu do caixa).");return}
+  if(kind==="finance"){var fx=financeEntryExpense(id);if(fx&&confirm("Excluir este contrato? A despesa da entrada ("+money(fx.amount)+") também será excluída.")){db.expenses=db.expenses.filter(function(e){return e!==fx});db.finance=db.finance.filter(function(y){return y.id!==id});if(modalRefresh&&$("modalRoot").innerHTML)closeModal();save()}if(fx)return}
   if(usage(kind,id)){alert("Este cadastro já está em uso em lançamentos. Use “Inativar” — ele some das listas e o histórico é mantido.");return}
   if(kind==="companies"&&db.companies.length<=1){alert("É preciso manter ao menos uma empresa.");return}
   var x=findBy(db[kind],id),msg="Excluir este lançamento?";
@@ -1596,6 +1613,7 @@ function noExpenseOccurrence(x,dueDate){
 }
 function openExpense(id){
   var x=id?findBy(db.expenses,id):{},ctl;
+  if(x.financeEntryId){alert("Esta despesa é a entrada de um financiamento. Ela é alterada pelo contrato — vou abrir o contrato.");openFinance(x.financeEntryId);return}
   modal(id?"Editar despesa":"Nova despesa",
     (x.recurringId?'<div class="notice"><span class="badge fix">conta fixa</span> lançada automaticamente'+(!x.noExpenseThisMonth&&!(x.amount>0)?' — <b>informe o valor da guia/conta</b>.':".")+'</div>':
       '<div class="notice">A despesa entra no mês da <b>data de pagamento</b>. Ex.: guia da competência 08 paga em 11 → aparece em novembro.</div>')+
@@ -1731,7 +1749,8 @@ function openFinance(id){
       if(!need(!cashMode||cashInV>0,"Informe o valor que caiu na conta, ou escolha “Não — o banco pagou direto o vendedor”."))return false;
       if(cashMode&&entryV>0&&entryCash&&cashInV+entryV>amount+0.01&&!confirm("Atenção: o valor creditado na conta ("+money(cashInV)+") mais a entrada ("+money(entryV)+") passam do valor contratado ("+money(amount)+").\n\nNo financiamento de bem o banco paga o vendedor e só a entrada sai do caixa. Se for esse o caso, escolha “Não — o banco pagou direto o vendedor”.\n\nSalvar mesmo assim?"))return false;
       var r={id:x.id||uid(),companyId:x.companyId||cid(),kind:get("fiKind"),institutionId:get("fiInstitution"),institutionName:inst.name||"",date:get("fiDate"),description:get("fiDesc"),amount:amount,entryAmount:entryV,entryFromCash:entryCash,cashIn:cashInV,competence:get("fiComp"),installments:pars};
-      if(id)Object.assign(x,r);else db.finance.push(r)
+      if(id)Object.assign(x,r);else db.finance.push(r);
+      syncFinanceEntryExpense(id?x:r)
     },
     function(){
       ["fiAmount","fiEntry","fiCashIn","fiParcTotal"].forEach(function(i){moneyMask(i)});
@@ -2073,7 +2092,9 @@ async function vf15ChooseCompany(){
   vf15LockedCompany={id,code:company.code};vf15LockGranted=true;vf15SetOverlay('');
   vfImportTotals();
   // Only the selected company can generate automatic recurring entries.
-  if(autoRecurring())vf15OriginalPersist();
+  var vfMig=migrateFinanceEntries();
+  if(autoRecurring()||vfMig)vf15OriginalPersist();
+  if(vfMig)renderAll();
  }catch(err){console.error(err);vf15SetOverlay('Erro ao solicitar bloqueio ao Supabase. Feche e tente novamente.');}
  finally{vf15Busy=false;}
 }

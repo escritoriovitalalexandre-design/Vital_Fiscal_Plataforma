@@ -147,6 +147,7 @@ tr:hover .ord button{opacity:1}.ord button:hover{color:var(--navy);transform:sca
 @media print{.sidebar,.filters,.filterBar,.tableActions,.actions,.top button,.noPrint,.quickBar{display:none!important}.main{margin:0;padding:0}.panel{box-shadow:none;break-inside:avoid}.scroll{max-height:none;overflow:visible;border:0}}
 @media(max-width:1180px){.summaryGrid{grid-template-columns:repeat(2,1fr)}.kpiGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:840px){.sidebar{position:static;width:auto}.main{margin:0;padding:14px}.summaryGrid,.kpiGrid,.formGrid,.formGrid.two{grid-template-columns:1fr}.hint{margin-left:0;text-align:left}}
+.fiCashPreview{margin-top:10px;padding:10px 12px;border:1px solid #c9d7df;border-radius:8px;background:#f6fafc;font-size:13px}.fiCashPreview .pos{color:#087647;font-weight:700}.fiCashPreview .neg{color:#b43d34;font-weight:700}.fiWarn{margin-top:7px;color:#9a4e00;font-weight:700}
 </style>
 </head>
 <body>
@@ -1699,10 +1700,11 @@ function openFinance(id){
       '<label>Valor contratado<input id="fiAmount" value="'+(x.amount?brNumber(x.amount):"")+'"></label>'+
       '<label>Competência<input id="fiComp" type="month" value="'+esc(x.competence||comp())+'"></label>'+
     '</div><div class="formSection"><h3>Efeito no caixa</h3><div class="formGrid">'+
-      '<label>Valor creditado na conta<input id="fiCashIn" value="'+(x.cashIn?brNumber(x.cashIn):"")+'" placeholder="0,00"></label>'+
+      '<label>O dinheiro do contrato caiu na conta da empresa?<select id="fiCashMode"><option value="0">Não — o banco pagou direto o vendedor (financiamento de bem)</option><option value="1">Sim — caiu na conta (empréstimo / capital de giro)</option></select></label>'+
+      '<label id="fiCashInWrap">Valor creditado na conta<input id="fiCashIn" value="'+(x.cashIn?brNumber(x.cashIn):"")+'" placeholder="0,00"></label>'+
       '<label>Entrada paga pela empresa<input id="fiEntry" value="'+(x.entryAmount?brNumber(x.entryAmount):"")+'" placeholder="0,00"></label>'+
       '<label>A entrada saiu do caixa?<select id="fiEntryCash"><option value="1">Sim</option><option value="0" '+(x.entryFromCash===false?"selected":"")+'>Não</option></select></label>'+
-    '</div><p class="subtle">Empréstimo / capital de giro: informe o valor que caiu na conta. Financiamento de bem pago direto ao vendedor: deixe zerado.</p></div>'+
+    '</div><div id="fiCashPreview" class="fiCashPreview"></div><p class="subtle">Financiamento de veículo/bem: o banco paga o vendedor, então <b>nada entra</b> na conta — só a entrada sai do caixa. Empréstimo / capital de giro: informe o valor que caiu na conta.</p></div>'+
     '<div class="formSection"><h3>Parcelas</h3><div class="formGrid"><label>Quantidade<input id="fiCount" type="number" min="1" value="'+(list.length||12)+'"></label>'+
       '<label>1º vencimento<input id="fiFirstDue" type="date" value="'+esc((list[0]&&list[0].dueDate)||"")+'"></label>'+
       '<label>Total das parcelas (com juros)<input id="fiParcTotal" placeholder="Se vazio: contratado − entrada"></label></div>'+
@@ -1713,7 +1715,10 @@ function openFinance(id){
       var pars=$("fiInstallments").querySelector("[data-parcel-row]")?readInstallments("fiInstallments","fiP",list):[];
       if(!need(pars.length,"Clique em “Gerar parcelas”."))return false;
       var inst=findBy(db.institutions,get("fiInstitution"));
-      var r={id:x.id||uid(),companyId:x.companyId||cid(),kind:get("fiKind"),institutionId:get("fiInstitution"),institutionName:inst.name||"",date:get("fiDate"),description:get("fiDesc"),amount:amount,entryAmount:parseMoney(get("fiEntry")),entryFromCash:get("fiEntryCash")==="1",cashIn:parseMoney(get("fiCashIn")),competence:get("fiComp"),installments:pars};
+      var cashMode=get("fiCashMode")==="1",cashInV=cashMode?parseMoney(get("fiCashIn")):0,entryV=parseMoney(get("fiEntry")),entryCash=get("fiEntryCash")==="1";
+      if(!need(!cashMode||cashInV>0,"Informe o valor que caiu na conta, ou escolha “Não — o banco pagou direto o vendedor”."))return false;
+      if(cashMode&&entryV>0&&entryCash&&cashInV+entryV>amount+0.01&&!confirm("Atenção: o valor creditado na conta ("+money(cashInV)+") mais a entrada ("+money(entryV)+") passam do valor contratado ("+money(amount)+").\n\nNo financiamento de bem o banco paga o vendedor e só a entrada sai do caixa. Se for esse o caso, escolha “Não — o banco pagou direto o vendedor”.\n\nSalvar mesmo assim?"))return false;
+      var r={id:x.id||uid(),companyId:x.companyId||cid(),kind:get("fiKind"),institutionId:get("fiInstitution"),institutionName:inst.name||"",date:get("fiDate"),description:get("fiDesc"),amount:amount,entryAmount:entryV,entryFromCash:entryCash,cashIn:cashInV,competence:get("fiComp"),installments:pars};
       if(id)Object.assign(x,r);else db.finance.push(r)
     },
     function(){
@@ -1729,7 +1734,20 @@ function openFinance(id){
         if(list.some(function(p){return p.status==="Pago"})&&!confirm("Existem parcelas pagas. Gerar de novo apaga esses pagamentos. Continuar?"))return;
         list=makeInstallments(total,Number(get("fiCount"))||1,get("fiFirstDue")||addMonths(get("fiDate")||TODAY,1));draw()
       };
-      $("fiKind").onchange=function(){if(/Empréstimo|Capital/.test(this.value)&&!get("fiCashIn")&&get("fiAmount"))$("fiCashIn").value=get("fiAmount")};
+      /* V22: efeito no caixa explícito, com prévia do que entra e sai na data do contrato */
+      $("fiCashMode").value=Number(x.cashIn)>0?"1":(x.id?"0":(/Empréstimo|Capital/.test(get("fiKind"))?"1":"0"));
+      function preview(){
+        var on=get("fiCashMode")==="1";$("fiCashInWrap").style.display=on?"":"none";
+        var amt=parseMoney(get("fiAmount")),cin=on?parseMoney(get("fiCashIn")):0,ent=parseMoney(get("fiEntry")),eOut=get("fiEntryCash")==="1"?ent:0,netV=cin-eOut;
+        var warn=on&&eOut>0&&amt>0&&cin+eOut>amt+0.01;
+        $("fiCashPreview").innerHTML='<b>Na data do contrato'+(get("fiDate")?" ("+fmtDate(get("fiDate"))+")":"")+':</b> '+
+          '<span class="pos">entra '+money(cin)+'</span> • <span class="neg">sai '+money(eOut)+(eOut?' (entrada)':'')+'</span> • efeito no caixa <b class="'+(netV<0?"neg":"pos")+'">'+(netV<0?"−":"+")+money(Math.abs(netV))+'</b>'+
+          (warn?'<div class="fiWarn">⚠ Crédito na conta + entrada passam do valor contratado. Num financiamento de bem, o banco paga o vendedor: escolha “Não” na primeira pergunta.</div>':'');
+      }
+      ["fiCashMode","fiCashIn","fiEntry","fiEntryCash","fiAmount","fiDate"].forEach(function(i){$(i).addEventListener("input",preview);$(i).addEventListener("change",preview)});
+      $("fiKind").onchange=function(){if(!x.id){$("fiCashMode").value=/Empréstimo|Capital/.test(this.value)?"1":"0"}if(get("fiCashMode")==="1"&&!get("fiCashIn")&&get("fiAmount"))$("fiCashIn").value=get("fiAmount");preview()};
+      $("fiCashMode").addEventListener("change",function(){if(this.value==="1"&&!get("fiCashIn")&&get("fiAmount"))$("fiCashIn").value=get("fiAmount");preview()});
+      preview();
       $("fiAddInstitution").onclick=function(){openInstitutionInline(function(nid){$("fiInstitution").innerHTML=institutionOptions(nid)})}
     }
   )

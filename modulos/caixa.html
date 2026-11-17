@@ -799,13 +799,25 @@ function renderCash(){
       band("Lucro",lucroPct==null?'<span class="muted">—</span>':'<span class="'+(lucroPct<0?"neg":"")+'">'+lucroPct.toFixed(1).replace(".",",")+'%</span>',"","",lucroPct==null?"sem compras no ano":"venda sobre compra")+
       band("Lucros distrib. "+y,money(lucrosDist),"","go:profits","distribuição + antecipação")+
     '</div>';
+  /* V22: aviso de possível pagamento em dobro — parcela paga no contrato de financiamento e também como despesa */
+  var dupF=[];
+  byCompany(db.expenses).forEach(function(x){
+    if(!/financ|empr[eé]stimo|cons[oó]rcio|capital de giro/i.test((x.expenseTypeName||"")+" "+(x.description||"")))return;
+    (x.installments||[]).forEach(function(p){
+      if(p.status!=="Pago"||!p.paidDate||p.paidDate.slice(0,4)!==String(y))return;var v=paidVal(p),mk=p.paidDate.slice(0,7);
+      byCompany(db.finance).forEach(function(f){(f.installments||[]).forEach(function(q){
+        if(q.status==="Pago"&&(q.paidDate||q.dueDate||"").slice(0,7)===mk&&v>0&&Math.abs(paidVal(q)-v)<=0.05)dupF.push('Despesa “'+esc(x.expenseTypeName||x.description||"")+'” de '+money(v)+' paga em '+fmtDate(p.paidDate)+' e parcela '+q.number+' do contrato “'+esc(f.description||f.kind||"")+'” paga em '+fmtDate(q.paidDate||q.dueDate))
+      })})
+    })
+  });
+  if(dupF.length)h+='<div class="alert orange" style="margin-top:12px;display:block"><b>⚠ Possível pagamento em dobro ('+dupF.length+')</b> — a parcela já é baixada no contrato em Financiamentos; se também foi lançada como despesa, o caixa sai duas vezes. Exclua a despesa repetida.<ul style="margin:8px 0 0 18px">'+dupF.map(function(t){return '<li>'+t+'</li>'}).join("")+'</ul></div>';
   mt.forEach(function(r,i){r.oth=oth[i];r.cp=cp[i];r.saldo=sal[i]});
   var rows=mt.map(function(r,i){var fut=i>=lastM&&!(r.v||r.p||r.d||r.oth||r.cp);
-    return tr([MONTH_NAMES[i],[mz(r.pg),"num"],[mz(r.vmg),"num"],[mz(r.vs),"num"],[mz(r.vc),"num"],[mz(r.d),"num"],[fut?'<span class="muted">–</span>':smoney(r.saldo),"num"]],
+    return tr([MONTH_NAMES[i],[mz(r.pg),"num"],[mz(r.vmg),"num"],[mz(r.vs),"num"],[mz(r.vc),"num"],[mz(r.d),"num"],[mz(r.oth),"num"],[fut?'<span class="muted">–</span>':smoney(r.saldo),"num"]],
       S.mode==="month"&&r.month===S.month?"cur":"","openMonth:"+r.month)});
-  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num">Desp. mensal</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
-    '<tr class="tot"><td>TOTAL ANO</td><td class="num">'+money(tot("pg"))+'</td><td class="num">'+money(tot("vmg"))+'</td><td class="num">'+money(tot("vs"))+'</td><td class="num">'+money(tot("vc"))+'</td><td class="num">'+money(tot("d"))+'</td><td class="num">'+smoney(tot("saldo"))+'</td></tr>'+
-    '<tr class="avg"><td>MÉDIAS ANO <span class="avgCount" title="Meses usados no cálculo da média">'+n+' '+(n===1?"mês":"meses")+'</span></td><td class="num">'+money(avg("pg"))+'</td><td class="num">'+money(avg("vmg"))+'</td><td class="num">'+money(avg("vs"))+'</td><td class="num">'+money(avg("vc"))+'</td><td class="num">'+money(avg("d"))+'</td><td class="num">'+money(avg("saldo"))+'</td></tr>'+
+  h+='<div class="scroll flat" style="margin-top:14px"><table class="sheet"><thead><tr><th>Meses</th><th class="num" title="Total de compras pela competência">Compras</th><th class="num" title="Faturamento pela competência com documento NF-e, NFC-e e demais">NF-e / NFC-e</th><th class="num" title="Faturamento pela competência com documento NFS-e">NFS-e (serviço)</th><th class="num" title="Faturamento pela competência com documento CT-e">CT-e</th><th class="num">Desp. mensal</th><th class="num" title="Financiamentos (entrada, parcelas pagas e créditos na conta), ativo imobilizado e movimentos avulsos — valores que mexem no caixa mas não são compra, venda ou despesa">Financ. / outros</th><th class="num">Saldo mês</th></tr></thead><tbody>'+rows.join("")+'</tbody><tfoot>'+
+    '<tr class="tot"><td>TOTAL ANO</td><td class="num">'+money(tot("pg"))+'</td><td class="num">'+money(tot("vmg"))+'</td><td class="num">'+money(tot("vs"))+'</td><td class="num">'+money(tot("vc"))+'</td><td class="num">'+money(tot("d"))+'</td><td class="num">'+smoney(tot("oth"))+'</td><td class="num">'+smoney(tot("saldo"))+'</td></tr>'+
+    '<tr class="avg"><td>MÉDIAS ANO <span class="avgCount" title="Meses usados no cálculo da média">'+n+' '+(n===1?"mês":"meses")+'</span></td><td class="num">'+money(avg("pg"))+'</td><td class="num">'+money(avg("vmg"))+'</td><td class="num">'+money(avg("vs"))+'</td><td class="num">'+money(avg("vc"))+'</td><td class="num">'+money(avg("d"))+'</td><td class="num">'+smoney(avg("oth"))+'</td><td class="num">'+money(avg("saldo"))+'</td></tr>'+
     '</tfoot></table></div>'+
     '<p class="subtle">Clique no mês para abrir a visão mensal. As colunas de compras e faturamento mostram os totais pela competência. Despesas aparecem no mês do pagamento. O saldo considera vendas recebidas, compras e despesas pagas nas datas das baixas, além de devoluções, ativo, empréstimos, aportes e tarifas. <b>Total do Saldo mês = Desempenho</b>; Caixa '+y+' = Caixa '+(y-1)+' + Desempenho − Lucros distribuídos.</p></div>';
   // entradas/saídas sem devoluções (as devoluções têm quadros próprios)

@@ -430,7 +430,11 @@ function cashSummary(){
   }
   var inP=moves.filter(function(x){return inPeriodDate(x.date)});
   var ins=sum(inP.filter(function(x){return x.dir==="in"}),function(x){return x.amount}),outs=sum(inP.filter(function(x){return x.dir==="out"}),function(x){return x.amount});
-  return {yearOpening:yo,opening:opening,ins:ins,outs:outs,closing:opening+ins-outs,moves:inP,all:moves,year:y}
+  var closing=opening+ins-outs;
+  /* V22: na visão "Todos", o saldo final respeita o saldo inicial informado mais recente (igual à visão anual) */
+  if(S.mode==="all"){var lastMan=byCompany(db.cashOpening).map(function(x){return Number(x.year)}).sort(function(a,b){return b-a})[0];
+    if(lastMan!=null&&lastMan>y)closing=(Number(manualOpening(lastMan).amount)||0)+net(moves,lastMan+"-01-01","9999-12-31")}
+  return {yearOpening:yo,opening:opening,ins:ins,outs:outs,closing:closing,moves:inP,all:moves,year:y}
 }
 function cashByMonth(y,moves){
   moves=moves||cashMoves();var bal=yearOpening(y,moves).amount,rows=[];
@@ -619,7 +623,7 @@ function onShortcut(e){
   showView(item[0])
 }
 function renderNav(){
-  var late=allTitles().filter(function(t){return isLate(t.p)}).length;
+  var late=allTitles().filter(function(t){return isLate(t.p)&&t.p.amount>0}).length;
   $("nav").innerHTML=navItems.map(function(n){
     if(n==="-")return '<div class="sep"></div>';
     var badge=n[0]==="titles"&&late?'<span class="count" title="Vencidas">'+late+'</span>':"";
@@ -714,7 +718,8 @@ function mini(t,v,cls,act){return '<div class="miniKpi '+(cls||"")+'" '+(act?'da
 /* ---------- Visão Geral ---------- */
 function renderDashboard(){
   var t=totals(),c=cashSummary(),titles=allTitles();
-  var lateP=titles.filter(function(x){return x.dir==="pagar"&&isLate(x.p)}),lateR=titles.filter(function(x){return x.dir==="receber"&&isLate(x.p)});
+  /* V22: contas sem valor (aguardando a guia) ficam só no alerta próprio, não contam como vencidas */
+  var lateP=titles.filter(function(x){return x.dir==="pagar"&&isLate(x.p)&&x.p.amount>0}),lateR=titles.filter(function(x){return x.dir==="receber"&&isLate(x.p)&&x.p.amount>0});
   var lim=localISO(new Date(Date.now()+7*86400000));
   var soon=titles.filter(function(x){return x.dir==="pagar"&&x.p.status==="Em aberto"&&x.p.dueDate>=TODAY&&x.p.dueDate<=lim});
   var missing=0;monthsToCheck().forEach(function(m){missing+=recurringMissing(m).length});
@@ -724,6 +729,8 @@ function renderDashboard(){
   if(lateR.length)al+='<div class="alert red"><span><b>'+lateR.length+'</b> conta(s) a receber vencida(s) — '+money(sum(lateR,function(x){return x.p.amount}))+'</span>'+btn("secondary","goTitles:receber:Vencido","Ver")+'</div>';
   if(soon.length)al+='<div class="alert orange"><span><b>'+soon.length+'</b> conta(s) vencem nos próximos 7 dias — '+money(sum(soon,function(x){return x.p.amount}))+'</span>'+btn("secondary","goTitles:pagar:7dias","Ver")+'</div>';
   if(zero.length)al+='<div class="alert orange"><span><b>'+zero.length+'</b> despesa(s) sem valor aguardando o valor da guia/conta.</span>'+btn("secondary","goExpZero","Informar valores")+'</div>';
+  var difs=vfImportDiffs();
+  if(difs.length)al+='<div class="alert orange"><span><b>'+difs.length+'</b> total(is) importado(s) diferente(s) do Fechamento Fiscal ('+difs.map(function(x){return (x.table==="sales"?"faturamento ":"compras ")+compLabel(x.competence)}).join(", ")+').</span>'+btn("secondary","go:"+difs[0].table,"Conferir")+'</div>';
   var pos=sum(assetPosition(),function(a){return a.amount});
   var openPay=sum(titles.filter(function(x){return x.dir==="pagar"&&x.p.status==="Em aberto"}),function(x){return x.p.amount});
   var openRec=sum(titles.filter(function(x){return x.dir==="receber"&&x.p.status==="Em aberto"}),function(x){return x.p.amount});
@@ -860,7 +867,7 @@ function renderMovList(table,kind){
   var k=table,isSale=kind==="sale",dir=isSale?"receber":"pagar";
   $("view-"+table).innerHTML=panelHead(isSale?"Faturamento — "+periodLabel():"Compras — "+periodLabel(),"Clique numa linha para abrir/editar.",
       btn("secondary","importClosing","↻ Importar Fechamento Fiscal")+btn("primary","newMov:"+kind,isSale?"+ Novo faturamento":"+ Nova compra"))+
-    fbar(k,[fText(k),fSel(k,"status","Situação",[["open","A "+(isSale?"receber":"pagar")],["Vencido","Vencidas"],["Pago",isSale?"Recebidas":"Pagas"]],"Todas"),fSel(k,"doc","Documento",uniq(active(db.documentTypes).map(function(d){return d.name}).concat(byCompany(db[table]).map(function(x){return x.documentTypeName})))),fSel(k,"src","Origem",[["fech","Fechamento Fiscal"],["man","Lançamento manual"]],"Todas")])+'</div>';
+    fbar(k,[fText(k),fSel(k,"status","Situação",[["open","A "+(isSale?"receber":"pagar")],["Vencido","Vencidas"],["Pago",isSale?"Recebidas":"Pagas"]],"Todas"),fSel(k,"doc","Documento",uniq(active(db.documentTypes).map(function(d){return d.name}).concat(byCompany(db[table]).map(function(x){return x.documentTypeName})))),fSel(k,"src","Origem",[["fech","Fechamento Fiscal"],["man","Lançamento manual"]],"Todas")])+'</div>'+vfDiffAlert(table);
   RES[k]=function(){
     var list=scoped(db[table]).filter(function(x){
       var st=instStatus(x),f=fv(k,"status");
@@ -1659,9 +1666,14 @@ function openExpense(id){
 function openPay(items){
   var rows=items.map(function(it){var f=findInst(it.src,it.rec,it.pid);return {it:it,r:f.r,p:f.p,dir:it.src==="sales"||(it.src==="payables"&&f.r.dir==="receber")?"receber":"pagar"}}).filter(function(x){return x.p&&x.p.status==="Em aberto"});
   if(!rows.length)return;
-  var single=rows.length===1,total=sum(rows,function(x){return x.p.amount}),rec=rows.every(function(x){return x.dir==="receber"}),zero=single&&!(rows[0].p.amount>0);
-  overlay((rec?"Receber":"Pagar")+(single?"":" "+rows.length+" contas"),
-    tbl(["Vencimento","Descrição",["Valor","num"]],rows.map(function(x){var n=x.r.installments.length;return tr([fmtDate(x.p.dueDate),esc((x.r.partyName||x.r.institutionName||"")+" — "+(x.r.expenseTypeName||x.r.description||x.r.kind||""))+(n>1?" ("+x.p.number+"/"+n+")":""),[zero?'<span class="badge zero">sem valor</span>':money(x.p.amount),"num"]])}),single?null:["","Total",[money(total),"num"]])+
+  /* V22: no lote, conta sem valor não pode ser baixada (precisa informar o valor da guia antes) */
+  var semValor=rows.filter(function(x){return !(x.p.amount>0)});
+  if(rows.length>1&&semValor.length){alert(semValor.length+" conta(s) selecionada(s) estão sem valor (ex.: "+(semValor[0].r.expenseTypeName||semValor[0].r.description||"")+").\n\nInforme o valor dessas contas antes de baixar, ou pague-as uma de cada vez. Desmarque-as para pagar as demais.");return}
+  var single=rows.length===1,total=sum(rows,function(x){return x.p.amount}),rec=rows.every(function(x){return x.dir==="receber"}),mixed=!rec&&rows.some(function(x){return x.dir==="receber"}),zero=single&&!(rows[0].p.amount>0);
+  /* V22: lote misto mostra separado o que é pagamento e o que é recebimento */
+  var totPag=sum(rows.filter(function(x){return x.dir==="pagar"}),function(x){return x.p.amount}),totRec=sum(rows.filter(function(x){return x.dir==="receber"}),function(x){return x.p.amount});
+  overlay((mixed?"Pagar e receber":rec?"Receber":"Pagar")+(single?"":" "+rows.length+" contas"),
+    tbl(["Vencimento","Tipo","Descrição",["Valor","num"]],rows.map(function(x){var n=x.r.installments.length;return tr([fmtDate(x.p.dueDate),x.dir==="receber"?'<span class="pos">Receber</span>':'<span class="neg">Pagar</span>',esc((x.r.partyName||x.r.institutionName||"")+" — "+(x.r.expenseTypeName||x.r.description||x.r.kind||""))+(n>1?" ("+x.p.number+"/"+n+")":""),[zero?'<span class="badge zero">sem valor</span>':money(x.p.amount),"num"]])}),single?null:(mixed?["","","A pagar "+money(totPag)+" • A receber "+money(totRec),[smoney(totRec-totPag),"num"]]:["","","Total",[money(total),"num"]]))+
     '<div class="formGrid two" style="margin-top:12px"><label>Data do '+(rec?"recebimento":"pagamento")+'<input type="date" id="pyDate" value="'+TODAY+'"></label>'+
     (single?'<label>Valor '+(rec?"recebido":"pago")+(zero?"":" (altere se houve juros/desconto)")+'<input id="pyVal" value="'+(zero?"":brNumber(rows[0].p.amount))+'" placeholder="0,00"></label>':'<div class="subtle" style="align-self:end">Cada conta será baixada pelo seu valor.</div>')+'</div>',
     function(o){
@@ -2175,29 +2187,54 @@ function vfMovementEdited(old,next){
     return ["amount","status","paidDate","dueDate","paidAmount"].some(function(k){return (p[k]??"")!==(b[i][k]??"")});
   });
 }
+/* V22: totais importados que ficaram diferentes do Fechamento (ex.: compra já paga e Fechamento alterado depois). */
+function vfImportDiffs(table){
+  var co=findBy(db.companies,cid());if(!co.id)return [];
+  var client=vfMasterClients().find(function(c){return vfCode(c.code)===vfCode(co.code)});
+  if(!client||client.caixaIntegrationEnabled!==true)return [];
+  var out=[];
+  vfClosingRows().filter(function(f){return vfCode(f.clientCode)===vfCode(co.code)&&vfAuthorizedStatus(f.status)&&f.competence&&f.competence>=(client.caixaIntegrationStart||"")}).forEach(function(f){
+    var expect={sales:f.noMovement?0:Math.max(0,vfCents(f.netRevenue)),purchases:f.noMovement?0:Math.max(0,vfCents(f.entries)-vfCents(f.purchaseReturns))};
+    ["sales","purchases"].filter(function(t){return !table||t===table}).forEach(function(t){
+      var base="vf14|"+co.id+"|"+f.competence+"|"+t,rows=(db[t]||[]).filter(function(r){return r.syncKey===base||String(r.syncKey||"").startsWith(base+"|")});
+      if(!rows.length)return;
+      var caixa=sum(rows,function(r){return vfCents(r.amount)});
+      if(caixa!==expect[t])out.push({table:t,competence:f.competence,caixa:caixa/100,fiscal:expect[t]/100});
+    });
+  });
+  return out.sort(function(a,b){return a.competence<b.competence?-1:1})
+}
+function vfDiffAlert(table){
+  var d=vfImportDiffs(table);if(!d.length)return "";
+  return '<div class="alert orange" style="display:block;margin-bottom:12px"><b>⚠ Diferente do Fechamento Fiscal ('+d.length+')</b> — o lançamento importado já foi pago ou editado, por isso não foi atualizado sozinho. Confira e ajuste:<ul style="margin:8px 0 0 18px">'+
+    d.map(function(x){return '<li>'+(x.table==="sales"?"Faturamento":"Compras")+' '+compLabel(x.competence)+': no Caixa '+money(x.caixa)+' • no Fechamento '+money(x.fiscal)+'</li>'}).join("")+'</ul></div>'
+}
+/* V22: compras importadas entram pagas no último dia do mês (vendas: recebidas no dia 1). */
+function vfLastDay(comp){return comp+"-"+pad(daysIn(comp))}
 function vfUnmodifiedImport(row,table,base){
   var ps=row.installments||[],p=ps[0]||{},sale=table==="sales",modern=row.importFiscalCents!=null;
-  var date=base.split("|")[2]+"-01",due=modern?date:"";
+  var comp=base.split("|")[2],date=comp+"-01",last=vfLastDay(comp);
   if(row.importEdited||row.date!==date||row.partyId||row.partyName||ps.length!==1||p.id!==row.syncKey+"|1"||
-    (p.dueDate||"")!==due||vfCents(p.amount)!==vfCents(row.amount))return false;
+    vfCents(p.amount)!==vfCents(row.amount))return false;
   if(modern&&row.importFiscalCents!==vfCents(row.amount))return false;
   if(!modern){
     var legacyDescription=sale?"Faturamento líquido consolidado do Fechamento Fiscal":"Compras líquidas consolidadas do Fechamento Fiscal";
-    if(row.documentNumber!=="TOTAL-"+base.split("|")[2]||row.documentTypeName!=="Resumo fiscal mensal"||row.description!==legacyDescription)return false;
+    if(row.documentNumber!=="TOTAL-"+comp||row.documentTypeName!=="Resumo fiscal mensal"||row.description!==legacyDescription||(p.dueDate||"")!=="")return false;
   }
-  if(modern&&sale)return row.cond==="avista"&&p.status==="Pago"&&p.paidDate===date&&vfCents(paidVal(p))===row.importFiscalCents;
-  return row.cond==="prazo"&&p.status==="Em aberto"&&!p.paidDate;
+  if(modern&&sale)return (p.dueDate||"")===date&&row.cond==="avista"&&p.status==="Pago"&&p.paidDate===date&&vfCents(paidVal(p))===row.importFiscalCents;
+  // compras: formato novo (paga no último dia) ou antigo (em aberto vencendo no dia 1)
+  if(modern&&row.cond==="avista")return p.dueDate===last&&p.status==="Pago"&&p.paidDate===last&&vfCents(paidVal(p))===row.importFiscalCents;
+  return row.cond==="prazo"&&p.status==="Em aberto"&&!p.paidDate&&(p.dueDate||"")===(modern?date:"");
 }
 function vfImportRow(co,f,table,key,doc,old){
-  var sale=table==="sales",date=f.competence+"-01",amount=doc.cents/100;
+  var sale=table==="sales",date=f.competence+"-01",amount=doc.cents/100,payDay=sale?date:vfLastDay(f.competence);
   var name=doc.name||"Resumo fiscal mensal",docId=doc.type?vfDocId(doc.type):"";
-  var parcel={id:key+"|1",number:1,dueDate:date,amount:amount,status:sale?"Pago":"Em aberto"};
-  if(sale){parcel.paidDate=date;parcel.paidAmount=amount}
+  var parcel={id:key+"|1",number:1,dueDate:payDay,amount:amount,status:"Pago",paidDate:payDay,paidAmount:amount};
   return Object.assign({},old||{},{
-    id:old?.id||key,syncKey:key,companyId:co.id,competence:f.competence,date:date,dueDate:date,
+    id:old?.id||key,syncKey:key,companyId:co.id,competence:f.competence,date:date,dueDate:payDay,
     amount:amount,source:"Fechamento Fiscal",documentNumber:"TOTAL-"+f.competence,documentTypeId:docId,
     documentTypeName:name,description:sale?(doc.type?"Faturamento líquido — "+name+" (Fechamento Fiscal)":"Faturamento líquido consolidado do Fechamento Fiscal"):"Compras líquidas consolidadas do Fechamento Fiscal",
-    importDocKey:doc.type||"",importFiscalCents:doc.cents,cond:sale?"avista":"prazo",installments:[parcel]
+    importDocKey:doc.type||"",importFiscalCents:doc.cents,cond:"avista",installments:[parcel]
   });
 }
 function vfSyncFiscalMonth(co,f,table,docs,stats){
@@ -2220,6 +2257,10 @@ function vfSyncFiscalMonth(co,f,table,docs,stats){
   });
   wanted.forEach(function(doc,key){
     var old=existing.find(function(r){return r.syncKey===key});
+    // V22: compra importada no formato antigo (em aberto no dia 1) e nunca mexida → passa a paga no último dia
+    if(old&&old.importFiscalCents===doc.cents&&table==="purchases"&&old.cond==="prazo"&&vfUnmodifiedImport(old,table,base)){
+      Object.assign(old,vfImportRow(co,f,table,key,doc,old));changed=true;stats.updated++;return;
+    }
     if(old&&old.importFiscalCents===doc.cents){
       // Update only the generated V18 document number, preserving any manual number and payment edits.
       if(table==="sales"&&doc.type&&old.documentNumber===doc.number){

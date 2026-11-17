@@ -200,4 +200,19 @@ const baseMonthly=renderMonthlyReport;renderMonthlyReport=function(){baseMonthly
 const viewBase=viewSaved;viewSaved=function(id){viewBase(id);let x=getSaved().find(z=>z.id===id);if(x&&Object.prototype.hasOwnProperty.call(x,'assetSales'))$('modalBody').insertAdjacentHTML('beforeend','<div class="notice"><b>Venda de ativo:</b> '+brl(x.assetSales||0)+'</div>')};
 updateTopSummary();renderSaved();renderMonthlyReport();
 })();
+</script>
+<script>
+/* V22: séries múltiplas — o mês seguinte já abre com as séries do último fechamento
+   e mostra a última numeração de cada série. */
+(()=>{
+const KEYS=['nfe','nfce','nfse','cte','cteos'];
+function lastClosingWith(key,client,competence){return getSaved().filter(x=>String(x.clientCode)===String(client)&&x.competence&&x.competence<competence&&!x.noMovement).sort((a,b)=>b.competence.localeCompare(a.competence)).find(x=>(x.documentSeries?.[key]||[]).some(r=>Number(r.last)>0)||Number(x[key+'Last'])>0)}
+function singleHint(key){let c=lastClosingWith(key,$('clientCode').value,$('competence').value);if(!c)return'';let rows=(c.documentSeries?.[key]||[]).filter(r=>Number(r.last)>0);if(rows.length>1)return rows.map(r=>'série '+(String(r.series||'').trim()||'?')+': '+r.last).join(' • ');if(rows.length===1)return String(rows[0].last);return String(c[key+'Last']||'')}
+const hintsBase=updatePreviousHints;
+updatePreviousHints=function(){hintsBase();if(!$('clientCode').value)return;KEYS.forEach(k=>{let h=singleHint(k);$(k+'PreviousHint').textContent='(última emissão anterior: '+(h||'não encontrada')+')'})};
+function typedSeries(){return KEYS.some(k=>[...($('seriesList_'+k)?.children||[])].some(r=>r.querySelector('[data-series-first]').value||r.querySelector('[data-series-last]').value))}
+function prefillSeries(){let client=$('clientCode').value,comp=$('competence').value;if(!client||!comp||editingId)return;if(getSaved().some(x=>String(x.clientCode)===String(client)&&x.competence===comp))return;if(typedSeries())return;let data={};KEYS.forEach(k=>{let c=lastClosingWith(k,client,comp),rows=(c?.documentSeries?.[k]||[]).filter(r=>String(r.series||'').trim());if(rows.length>1)data[k]=rows.map(r=>({series:String(r.series).trim(),first:'',last:''}))});resetDocumentSeries(data);updatePreviousHints();calculate()}
+const selectBase=selectClient;selectClient=function(){selectBase();prefillSeries()};$('clientSelect').onchange=selectClient;
+$('competence').addEventListener('change',()=>setTimeout(prefillSeries,0));
+})();
 </script></body></html>

@@ -980,7 +980,7 @@ function renderTitles(){
     var kp='<div class="kpiGrid" style="margin-bottom:12px">'+mini("Em aberto ("+open.length+")",money(sum(open,function(t){return t.p.amount})),"orange")+mini("Vencidas ("+late.length+")",money(sum(late,function(t){return t.p.amount})),"red")+
       mini("Pagas / recebidas ("+paid.length+")",money(sum(paid,function(t){return paidVal(t.p)})),"green")+'</div>';
     var rows=list.map(function(t){var p=t.p,s=isLate(p)?"Vencido":p.status==="Pago"?(t.dir==="receber"?"Recebido":"Pago"):p.status==="Em aberto"?"A "+t.dir:p.status,ref=t.src+":"+t.rec.id+":"+p.id;
-      return tr([p.status==="Em aberto"?'<input type="checkbox" data-sel="'+ref+'">':"",fmtDate(p.dueDate),"<b>"+compLabel(t.rec.competence)+"</b>",p.status==="Pago"?"<b>"+fmtDate(p.paidDate)+"</b>":"",t.dir==="pagar"?'<span class="neg">Pagar</span>':'<span class="pos">Receber</span>',t.origin,esc(t.party),esc(t.desc)+(p.isEntry?(p.noCash?' <small class="muted">(não saiu do caixa)</small>':""):t.n>1?' <small class="muted">('+p.number+'/'+t.n+')</small>':""),
+      return tr([p.status==="Em aberto"?'<input type="checkbox" data-sel="'+ref+'">':"",fmtDate(p.dueDate),"<b>"+compLabel(t.src==="finance"&&!p.isEntry&&p.dueDate?p.dueDate.slice(0,7):t.rec.competence)+"</b>",p.status==="Pago"?"<b>"+fmtDate(p.paidDate)+"</b>":"",t.dir==="pagar"?'<span class="neg">Pagar</span>':'<span class="pos">Receber</span>',t.origin,esc(t.party),esc(t.desc)+(p.isEntry?(p.noCash?' <small class="muted">(não saiu do caixa)</small>':""):t.n>1?' <small class="muted">('+p.number+'/'+t.n+')</small>':""),
         [p.status==="Pago"?money(paidVal(p)):money(p.amount),"num"],statusBadge(s),
         p.isEntry?acts([btn("secondary","edit:finance:"+t.rec.id,"Abrir contrato")]):acts([p.status==="Em aberto"?btn("success","pay:"+ref,"✔ "+payLabel(t.dir)):p.status==="Pago"?btn("warning","unpay:"+ref,"Estornar"):btn("secondary","reopen:"+ref,"Reabrir"),
           p.status==="Em aberto"&&t.n>1?btn("secondary","cancelInst:"+ref,"Cancelar parcela"):"",delBtn(t.src,t.rec.id)])],s==="Vencido"?"late":p.status==="Cancelado"?"off":"","edit:"+t.src+":"+t.rec.id)});
@@ -1755,8 +1755,17 @@ function openFinance(id){
       } draw();
       $("fiGenerate").onclick=function(){
         var total=parseMoney(get("fiParcTotal"))||Math.max(0,parseMoney(get("fiAmount"))-parseMoney(get("fiEntry")));
-        if(list.some(function(p){return p.status==="Pago"})&&!confirm("Existem parcelas pagas. Gerar de novo apaga esses pagamentos. Continuar?"))return;
-        list=makeInstallments(total,Number(get("fiCount"))||1,get("fiFirstDue")||addMonths(get("fiDate")||TODAY,1));draw()
+        /* V22: parcelas já pagas são mantidas; só as em aberto são geradas de novo */
+        list=readInstallments("fiInstallments","fiP",list);
+        var paidList=list.filter(function(p){return p.status==="Pago"}),qty=Number(get("fiCount"))||1;
+        if(paidList.length){
+          if(qty<=paidList.length){alert("Já existem "+paidList.length+" parcela(s) paga(s). Informe uma quantidade total maior que isso.");return}
+          if(!confirm("As "+paidList.length+" parcela(s) já paga(s) serão mantidas. Só as "+(qty-paidList.length)+" parcela(s) em aberto serão geradas de novo, com o saldo de "+money(Math.max(0,total-sum(paidList,function(p){return p.amount})))+". Continuar?"))return;
+          var lastDue=paidList.map(function(p){return p.dueDate||""}).sort().pop()||get("fiDate")||TODAY;
+          list=paidList.concat(makeInstallments(Math.max(0,total-sum(paidList,function(p){return p.amount})),qty-paidList.length,addMonths(lastDue,1)).map(function(p,i){p.number=paidList.length+i+1;return p}));
+          draw();return
+        }
+        list=makeInstallments(total,qty,get("fiFirstDue")||addMonths(get("fiDate")||TODAY,1));draw()
       };
       /* V22: efeito no caixa explícito, com prévia do que entra e sai na data do contrato */
       $("fiCashMode").value=Number(x.cashIn)>0?"1":(x.id?"0":(/Empréstimo|Capital/.test(get("fiKind"))?"1":"0"));

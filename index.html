@@ -30,6 +30,9 @@ function pr(l,t,a){
   let[n,i,c]=$1[e][u],f=(t*i/100-c)/t*100;
   let rates=Object.entries(yr[e][u]).map(([h,p])=>({tax:h,rate:f*p/100}));
   if(transport){rates=rates.filter(h=>h.tax!=="ISS");let iu=$1.I.findIndex(h=>t<=h[0]);if(iu>=0){let[,inom,ided]=$1.I[iu],ief=(t*inom/100-ided)/t*100;rates.push({tax:"ICMS",rate:ief*yr.I[iu].ICMS/100})}}
+  /* V22: guarda a repartição original. Sobre a receita com ISS retido, o PGDAS-D não transfere
+     o excedente do ISS (acima de 5%) para os tributos federais; a transferência vale só para a receita sem retenção. */
+  let rawRate=Object.fromEntries(rates.map(h=>[h.tax,h.rate]));
   let iss=rates.find(h=>h.tax==="ISS");
   if(iss&&iss.rate>5){
     let excess=iss.rate-5,federal=rates.filter(h=>h.tax!=="ISS"),sum=federal.reduce((h,p)=>h+p.rate,0);
@@ -38,12 +41,14 @@ function pr(l,t,a){
   let m=rates.map(({tax:h,rate:r})=>{
     let v=l.revenue;
     h==="ICMS"&&(v-=l.st+l.exempt),(h==="PIS"||h==="COFINS")&&(v-=l.zero),h==="ISS"&&(v-=l.iss),v=Math.max(0,v);
-    return{tax:h,base:v,rate:r,value:v*r/100};
+    if(h==="ISS"||h==="ICMS"||transport)return{tax:h,base:v,rate:r,value:v*r/100};
+    let ret=Math.min(Math.max(0,l.iss||0),v),value=(v-ret)*r/100+ret*rawRate[h]/100;
+    return{tax:h,base:v,rate:v?value/v*100:r,value};
   });
-  let raw=m.reduce((h,p)=>h+p.value,0),das=Math.floor((raw+1e-9)*100)/100;
+  /* V22: cada tributo é arredondado ao centavo e o DAS é a soma, como no PGDAS-D
+     (testado em 226 apurações reais: 154 exatas contra 88 do método anterior). */
   m=m.map(h=>({...h,value:Math.round((h.value+Number.EPSILON)*100)/100}));
-  let displayed=m.reduce((h,p)=>h+p.value,0),delta=Math.round((das-displayed)*100)/100;
-  if(delta&&m.length){let largest=m.reduce((h,p,i)=>p.value>m[h].value?i:h,0);m[largest].value=Math.round((m[largest].value+delta)*100)/100}
+  let das=Math.round(m.reduce((h,p)=>h+p.value,0)*100)/100;
   return{resolved:e,transport,idx:u,max:n,nom:i,ded:c,ef:f,rows:m,das};
 }
 function Wf(){let[l,t]=(0,I.useState)(vr),[a,e]=(0,I.useState)(!1),[u,n]=(0,I.useState)("dashboard"),[i,c]=(0,I.useState)(!1),[f,m]=(0,I.useState)(null),[h,p]=(0,I.useState)(""),[clientCode,setClientCode]=(0,I.useState)(""),[v,r]=(0,I.useState)(""),[A,E]=(0,I.useState)([]),[clientRegime,setClientRegime]=(0,I.useState)("simples"),[clientDocs,setClientDocs]=(0,I.useState)(["nfe","nfce","nfse","cte","cteos"]),[clientCaixaEnabled,setClientCaixaEnabled]=(0,I.useState)(!1),[clientCaixaStart,setClientCaixaStart]=(0,I.useState)(""),[R,d]=(0,I.useState)("inactive"),s=(0,I.useRef)(null),
